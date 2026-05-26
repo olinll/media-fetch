@@ -1,4 +1,4 @@
-# Media Fetch
+# MediaFetch 媒体抓取
 
 通用媒体链接解析器与下载器，支持抖音、B站、小红书、TikTok、YouTube、Twitter/X、微博、快手等平台。
 
