@@ -11,7 +11,6 @@
 - 自动去重缓存，相同链接不重复下载
 - Web UI 界面，支持解析、文件库、历史、日志查看
 - Lightbox 图片/视频预览，支持键盘导航和触摸滑动
-- iOS 捷径集成，手机端一键解析
 - 移动端自适应布局
 
 ## 快速开始
@@ -36,14 +35,6 @@ python server.py
 或 Windows 下双击 `start.bat`。
 
 服务启动后访问 http://localhost:9000 即可使用 Web UI。
-
-### 防火墙（局域网访问）
-
-Windows 管理员 PowerShell 执行：
-
-```powershell
-netsh advfirewall firewall add rule name="Media Fetch" dir=in action=allow protocol=TCP localport=9000
-```
 
 ## 技术栈
 
