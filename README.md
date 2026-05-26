@@ -32,8 +32,6 @@ pip install -r requirements.txt
 python server.py
 ```
 
-或 Windows 下双击 `start.bat`。
-
 服务启动后访问 http://localhost:9000 即可使用 Web UI。
 
 ## 技术栈
@@ -49,7 +47,6 @@ python server.py
 media-fetch/
 ├── server.py           # 后端服务
 ├── requirements.txt    # Python 依赖
-├── start.bat           # Windows 启动脚本
 ├── API.md              # API 接口文档
 ├── static/
 │   ├── index.html      # Web UI 页面结构
