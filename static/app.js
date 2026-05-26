@@ -95,6 +95,12 @@ function renderResult(data) {
       grid.innerHTML += `<img src="${f.url}" class="w-full aspect-square object-cover rounded cursor-pointer hover:opacity-80 transition" onclick='openLightbox(${JSON.stringify(allItems)}, ${idx})'>`;
     });
     mediaEl.appendChild(grid);
+    if (images.length > 1) {
+      const btnWrap = document.createElement('div');
+      btnWrap.className = 'px-1 pb-2';
+      btnWrap.innerHTML = `<button onclick="downloadAll()" class="w-full bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-lg text-sm font-medium transition">一键下载全部 (${images.length} 张)</button>`;
+      mediaEl.appendChild(btnWrap);
+    }
   }
 
   const filesEl = $('#r-files');
@@ -268,6 +274,11 @@ $('#lightbox').addEventListener('touchend', e => {
   const dx = e.changedTouches[0].clientX - touchStartX;
   if (Math.abs(dx) > 50) lbNav(dx > 0 ? -1 : 1);
 }, { passive: true });
+
+function downloadAll() {
+  const links = $$('#r-files a[download]');
+  links.forEach((a, i) => setTimeout(() => a.click(), i * 300));
+}
 
 function fmtDuration(sec) { const m = Math.floor(sec / 60); const s = Math.floor(sec % 60); return `${m}:${s.toString().padStart(2, '0')}`; }
 function fmtSize(bytes) { if (bytes < 1024) return bytes + ' B'; if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB'; return (bytes / 1048576).toFixed(1) + ' MB'; }
