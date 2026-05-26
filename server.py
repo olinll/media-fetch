@@ -1,0 +1,787 @@
+"""
+Universal Link Parser API
+支持抖音、B站、小红书、TikTok、YouTube 等平台的链接解析与下载
+"""
+
+import hashlib
+import json
+import logging
+import os
+import re
+import sys
+import time
+from collections import deque
+from datetime import datetime
+from pathlib import Path
+from random import choice
+
+# ffmpeg 路径：优先项目目录，其次 winget 安装路径
+_FFMPEG_CANDIDATES = [
+    Path(__file__).parent / "ffmpeg-master-latest-win64-gpl" / "bin",
+    Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft" / "WinGet" / "Packages" / "Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe" / "ffmpeg-8.1.1-full_build" / "bin",
+]
+for _d in _FFMPEG_CANDIDATES:
+    if (_d / "ffmpeg.exe").exists():
+        os.environ["PATH"] = str(_d) + os.pathsep + os.environ.get("PATH", "")
+        os.environ["FFMPEG_LOCATION"] = str(_d / "ffmpeg.exe")
+        break
+
+import httpx
+import yt_dlp
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
+
+# ======================================================================
+# Logging + 内存日志收集
+# ======================================================================
+
+LOG_BUFFER: deque[dict] = deque(maxlen=500)
+
+
+class MemoryLogHandler(logging.Handler):
+    def emit(self, record):
+        LOG_BUFFER.append({
+            "time": datetime.fromtimestamp(record.created).strftime("%Y-%m-%d %H:%M:%S"),
+            "level": record.levelname,
+            "message": record.getMessage(),
+        })
+
+
+logging.basicConfig(
+    level=logging.DEBUG,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    handlers=[logging.StreamHandler(sys.stdout), MemoryLogHandler()],
+)
+logger = logging.getLogger("parser")
+
+app = FastAPI(title="Universal Link Parser", version="1.0.0")
+
+# 挂载静态文件
+_STATIC_DIR = Path(__file__).parent / "static"
+_STATIC_DIR.mkdir(exist_ok=True)
+app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
+
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    logger.info(f">>> {request.method} {request.url.path}  query={dict(request.query_params)}  client={request.client.host}")
+    resp = await call_next(request)
+    logger.info(f"<<< {request.method} {request.url.path}  status={resp.status_code}")
+    return resp
+
+
+BASE_DIR = Path(__file__).parent
+DOWNLOAD_DIR = BASE_DIR / "downloads"
+CACHE_FILE = BASE_DIR / "cache.json"
+
+IOS_UA = (
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) "
+    "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 "
+    "Mobile/15E148 Safari/604.1"
+)
+ANDROID_UA = (
+    "Mozilla/5.0 (Linux; Android 15; SM-G998B) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/132.0.0.0 Mobile Safari/537.36"
+)
+PC_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/55.0.2883.87 Safari/537.36"
+)
+
+
+# ======================================================================
+# Cache: URL -> 解析结果去重
+# ======================================================================
+
+def _load_cache() -> dict:
+    if CACHE_FILE.exists():
+        try:
+            return json.loads(CACHE_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+    return {}
+
+
+def _save_cache(cache: dict):
+    CACHE_FILE.write_text(json.dumps(cache, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _cache_key(url: str) -> str:
+    """用原始 URL 做缓存 key（短链场景用 resolved_url）"""
+    return url
+
+
+def _check_cache(url: str) -> dict | None:
+    cache = _load_cache()
+    key = _cache_key(url)
+    if key not in cache:
+        return None
+    entry = cache[key]
+    # 校验文件是否都还在
+    files = entry.get("files", [])
+    valid_files = []
+    for f in files:
+        fpath = DOWNLOAD_DIR / f.get("relative_path", "")
+        if fpath.exists():
+            valid_files.append(f)
+    if not valid_files:
+        logger.info(f"[缓存] 命中但文件已丢失，重新下载: {key[:60]}")
+        return None
+    logger.info(f"[缓存] 命中: {key[:60]}")
+    entry["files"] = valid_files
+    entry["cached"] = True
+    return entry
+
+
+def _update_cache(url: str, result: dict):
+    cache = _load_cache()
+    key = _cache_key(url)
+    # 只存必要字段
+    cache[key] = {
+        "platform": result.get("platform", ""),
+        "title": result.get("title", ""),
+        "author": result.get("author", ""),
+        "type": result.get("type", ""),
+        "duration": result.get("duration", 0),
+        "original_url": result.get("original_url", ""),
+        "resolved_url": result.get("resolved_url", ""),
+        "files": result.get("files", []),
+    }
+    _save_cache(cache)
+
+
+# ======================================================================
+# 文件路径: downloads/yyyymmdd/platform/timestamp_random.ext
+# ======================================================================
+
+def _make_download_path(platform: str, suffix: str, url: str = "") -> Path:
+    """生成分层下载路径: downloads/20260526/抖音/1234567890_a1b2c3.mp4"""
+    today = datetime.now().strftime("%Y%m%d")
+    ts = int(time.time() * 1000)  # 毫秒级时间戳，避免同秒冲突
+    seed = f"{ts}{platform}{suffix}{url}"
+    rand = hashlib.md5(seed.encode()).hexdigest()[:6]
+    fname = f"{ts}_{rand}{suffix}"
+    subdir = DOWNLOAD_DIR / today / platform
+    subdir.mkdir(parents=True, exist_ok=True)
+    return subdir / fname
+
+
+def _relative_path(fpath: Path) -> str:
+    """相对于 DOWNLOAD_DIR 的路径"""
+    return str(fpath.relative_to(DOWNLOAD_DIR)).replace("\\", "/")
+
+
+def _file_hash(url: str) -> str:
+    return hashlib.md5(url.encode()).hexdigest()[:12]
+
+
+def extract_url(text: str) -> str:
+    """从剪贴板分享文案中提取 URL"""
+    m = re.search(r"https?://[^\s]+", text)
+    if m:
+        url = m.group(0).rstrip("/")
+        url = re.sub(r"[，。！？、；：）】》\u200b]+$", "", url)
+        logger.info(f"[提取] 从文案中提取到 URL: {url}")
+        return url
+    logger.warning(f"[提取] 未找到 URL，原文: {text[:80]}")
+    return text.strip()
+
+
+# ======================================================================
+# Douyin Parser
+# ======================================================================
+
+async def resolve_short_link(url: str, client: httpx.AsyncClient) -> str:
+    logger.info(f"[短链] 解析: {url}")
+    resp = await client.get(url, follow_redirects=False)
+    logger.info(f"[短链] 状态码: {resp.status_code}")
+    if resp.status_code in (301, 302, 303, 307, 308):
+        location = resp.headers.get("Location", url)
+        logger.info(f"[短链] 重定向到: {location}")
+        return location
+    logger.warning(f"[短链] 未收到重定向，返回原 URL")
+    return url
+
+
+def extract_douyin_id(url: str) -> tuple[str, str] | None:
+    patterns = [
+        r"douyin\.com/(?:video|note|slides)/(\d+)",
+        r"iesdouyin\.com/share/(?:slides|video|note)/(\d+)",
+        r"m\.douyin\.com/share/(?:slides|video|note)/(\d+)",
+        r"jingxuan\.douyin\.com/m/(?:slides|video|note)/(\d+)",
+    ]
+    for p in patterns:
+        m = re.search(p, url)
+        if m:
+            vid = m.group(1)
+            if "slides" in url:
+                return vid, "slides"
+            elif "note" in url:
+                return vid, "note"
+            return vid, "video"
+    return None
+
+
+async def parse_douyin_video(url: str, client: httpx.AsyncClient) -> dict:
+    logger.info(f"[抖音] 解析页面: {url}")
+    resp = await client.get(url, follow_redirects=True)
+    logger.info(f"[抖音] 页面状态码: {resp.status_code}, 内容长度: {len(resp.text)}")
+    resp.raise_for_status()
+    text = resp.text
+
+    m = re.search(r"window\._ROUTER_DATA\s*=\s*(.*?)</script>", text, re.DOTALL)
+    if not m:
+        raise ValueError("无法从页面提取 _ROUTER_DATA")
+
+    logger.info("[抖音] 成功提取 _ROUTER_DATA")
+    data = json.loads(m.group(1).strip())
+
+    video_data = None
+    loader = data.get("loaderData", {})
+    for key in ("video_(id)/page", "note_(id)/page"):
+        page = loader.get(key)
+        if page:
+            info_res = page.get("videoInfoRes", {})
+            items = info_res.get("item_list", [])
+            if items:
+                video_data = items[0]
+                logger.info(f"[抖音] 从 {key} 提取到数据")
+                break
+
+    if not video_data:
+        raise ValueError("无法提取视频数据")
+
+    author = video_data.get("author", {})
+    desc = video_data.get("desc", "")
+    create_time = video_data.get("create_time", 0)
+
+    images = video_data.get("images")
+    if images:
+        image_urls = []
+        for img in images:
+            urls = img.get("url_list", [])
+            if urls:
+                image_urls.append(choice(urls))
+        logger.info(f"[抖音] 图文, 图片数: {len(image_urls)}, 作者: {author.get('nickname')}")
+        return {
+            "type": "slides",
+            "title": desc,
+            "author": author.get("nickname", ""),
+            "timestamp": create_time,
+            "image_urls": image_urls,
+            "video_url": None,
+        }
+
+    video = video_data.get("video")
+    if video:
+        play_addr = video.get("play_addr", {})
+        url_list = play_addr.get("url_list", [])
+        video_url = None
+        for u in url_list:
+            video_url = u.replace("playwm", "play")
+            break
+
+        cover_url = None
+        cover = video.get("cover", {})
+        cover_list = cover.get("url_list", [])
+        if cover_list:
+            cover_url = choice(cover_list)
+
+        duration = video.get("duration", 0)
+        logger.info(f"[抖音] 视频, 时长: {duration}s, 作者: {author.get('nickname')}")
+        return {
+            "type": "video",
+            "title": desc,
+            "author": author.get("nickname", ""),
+            "timestamp": create_time,
+            "video_url": video_url,
+            "cover_url": cover_url,
+            "duration": duration,
+            "image_urls": [],
+        }
+
+    raise ValueError("无法识别内容类型")
+
+
+async def parse_douyin_slides_api(vid: str, client: httpx.AsyncClient) -> dict:
+    logger.info(f"[抖音] API 解析 slides, ID: {vid}")
+    url = "https://www.iesdouyin.com/web/api/v2/aweme/slidesinfo/"
+    params = {"aweme_ids": f"[{vid}]", "request_source": "200"}
+    resp = await client.get(url, params=params)
+    resp.raise_for_status()
+    data = resp.json()
+
+    details = data.get("aweme_details", [])
+    if not details:
+        raise ValueError("无法获取图文数据")
+
+    item = details[0]
+    author = item.get("author", {})
+    desc = item.get("desc", "")
+    create_time = item.get("create_time", 0)
+
+    image_urls = []
+    dynamic_urls = []
+    for img in item.get("images", []):
+        urls = img.get("url_list", [])
+        if urls:
+            image_urls.append(choice(urls))
+        vid_info = img.get("video")
+        if vid_info:
+            play = vid_info.get("play_addr", {})
+            play_urls = play.get("url_list", [])
+            if play_urls:
+                dynamic_urls.append(choice(play_urls))
+
+    return {
+        "type": "slides",
+        "title": desc,
+        "author": author.get("nickname", ""),
+        "timestamp": create_time,
+        "image_urls": image_urls,
+        "dynamic_urls": dynamic_urls,
+        "video_url": None,
+    }
+
+
+# ======================================================================
+# Generic Parser (yt-dlp)
+# ======================================================================
+
+def parse_with_ytdlp(url: str) -> dict:
+    logger.info(f"[yt-dlp] 解析: {url}")
+    opts = {
+        "quiet": True,
+        "skip_download": True,
+        "http_headers": {"User-Agent": PC_UA},
+    }
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        info = ydl.extract_info(url, download=False)
+
+    if not info:
+        raise ValueError("yt-dlp 无法解析该链接")
+
+    title = info.get("title", "")
+    author = info.get("uploader", info.get("channel", ""))
+    logger.info(f"[yt-dlp] 解析成功: {title} by {author}")
+    return {
+        "type": "video",
+        "title": title,
+        "author": author,
+        "timestamp": info.get("timestamp", 0),
+        "video_url": info.get("url") or None,
+        "cover_url": info.get("thumbnail"),
+        "duration": info.get("duration", 0),
+        "image_urls": [],
+        "formats": info.get("formats", []),
+    }
+
+
+# ======================================================================
+# Download helpers
+# ======================================================================
+
+async def download_file(url: str, suffix: str, client: httpx.AsyncClient, platform: str = "未知") -> tuple[Path, str]:
+    """下载文件，返回 (绝对路径, 相对路径)"""
+    fpath = _make_download_path(platform, suffix, url)
+    logger.info(f"[下载] 开始: {url[:80]}... -> {fpath.name}")
+    resp = await client.get(url, follow_redirects=True)
+    resp.raise_for_status()
+    fpath.write_bytes(resp.content)
+    size_mb = len(resp.content) / 1024 / 1024
+    rel = _relative_path(fpath)
+    logger.info(f"[下载] 完成: {rel} ({size_mb:.2f} MB)")
+    return fpath, rel
+
+
+def download_with_ytdlp(url: str, platform: str = "未知") -> tuple[Path, str]:
+    """使用 yt-dlp 下载，返回 (绝对路径, 相对路径)"""
+    fpath = _make_download_path(platform, ".mp4", url)
+    outtmpl = str(fpath.with_suffix(".%(ext)s"))
+    logger.info(f"[yt-dlp 下载] 开始: {url[:80]}...")
+
+    opts = {
+        "outtmpl": outtmpl,
+        "format": "bv*+ba/b/bv*/ba/b",
+        "merge_output_format": "mp4",
+        "quiet": True,
+        "http_headers": {"User-Agent": PC_UA},
+        "postprocessors": [{"key": "FFmpegVideoConvertor", "preferedformat": "mp4"}],
+    }
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            ydl.download([url])
+    except Exception as e:
+        logger.warning(f"[yt-dlp 下载] 首次失败: {e}, 尝试仅视频流")
+        opts["format"] = "bv/b"
+        opts.pop("merge_output_format", None)
+        opts.pop("postprocessors", None)
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            ydl.download([url])
+
+    # 检查输出文件
+    if fpath.exists():
+        size_mb = fpath.stat().st_size / 1024 / 1024
+        rel = _relative_path(fpath)
+        logger.info(f"[yt-dlp 下载] 完成: {rel} ({size_mb:.2f} MB)")
+        return fpath, rel
+
+    # yt-dlp 可能改了扩展名
+    candidates = sorted(fpath.parent.glob(f"{fpath.stem}.*"), key=lambda p: p.stat().st_mtime, reverse=True)
+    if candidates:
+        actual = candidates[0]
+        size_mb = actual.stat().st_size / 1024 / 1024
+        rel = _relative_path(actual)
+        logger.info(f"[yt-dlp 下载] 完成: {rel} ({size_mb:.2f} MB)")
+        return actual, rel
+
+    raise FileNotFoundError("下载失败")
+
+
+# ======================================================================
+# Platform detection
+# ======================================================================
+
+def _detect_platform(url: str) -> str:
+    if "douyin.com" in url or "iesdouyin.com" in url:
+        return "抖音"
+    if "bilibili.com" in url or "b23.tv" in url:
+        return "B站"
+    if "xiaohongshu.com" in url or "xhslink.com" in url:
+        return "小红书"
+    if "tiktok.com" in url:
+        return "TikTok"
+    if "youtube.com" in url or "youtu.be" in url:
+        return "YouTube"
+    if "twitter.com" in url or "x.com" in url:
+        return "Twitter"
+    if "weibo.com" in url:
+        return "微博"
+    if "kuaishou.com" in url:
+        return "快手"
+    return "其他"
+
+
+# ======================================================================
+# API Routes
+# ======================================================================
+
+@app.get("/")
+async def index():
+    return RedirectResponse(url="/static/index.html")
+
+
+# ======================================================================
+# 新增 API: 日志、统计、缓存
+# ======================================================================
+
+@app.get("/api/logs")
+async def get_logs(limit: int = Query(100, ge=1, le=500)):
+    """返回最近 N 条日志"""
+    items = list(LOG_BUFFER)[-limit:]
+    return {"logs": items, "total": len(LOG_BUFFER)}
+
+
+@app.get("/api/stats")
+async def get_stats():
+    """统计信息"""
+    total_files = 0
+    total_size = 0
+    by_platform: dict[str, int] = {}
+    by_date: dict[str, int] = {}
+
+    for f in DOWNLOAD_DIR.rglob("*"):
+        if f.is_file():
+            total_files += 1
+            total_size += f.stat().st_size
+            parts = f.relative_to(DOWNLOAD_DIR).parts
+            if len(parts) >= 2:
+                date_part = parts[0]
+                platform_part = parts[1]
+                by_date[date_part] = by_date.get(date_part, 0) + 1
+                by_platform[platform_part] = by_platform.get(platform_part, 0) + 1
+
+    cache_count = len(_load_cache())
+
+    return {
+        "total_files": total_files,
+        "total_size": total_size,
+        "total_size_mb": round(total_size / 1024 / 1024, 2),
+        "by_platform": by_platform,
+        "by_date": by_date,
+        "cache_count": cache_count,
+    }
+
+
+@app.get("/api/cache")
+async def get_cache():
+    """返回所有缓存条目"""
+    cache = _load_cache()
+    entries = []
+    for url, data in cache.items():
+        entries.append({
+            "url": url,
+            "platform": data.get("platform", ""),
+            "title": data.get("title", ""),
+            "author": data.get("author", ""),
+            "type": data.get("type", ""),
+            "duration": data.get("duration", 0),
+            "original_url": data.get("original_url", ""),
+            "files": data.get("files", []),
+        })
+    # 按 files 中第一个文件的修改时间倒序（最近的在前）
+    entries.sort(key=lambda e: e["files"][0]["relative_path"] if e["files"] else "", reverse=True)
+    return {"entries": entries, "total": len(entries)}
+
+
+@app.post("/parse")
+async def parse_link_post(request: Request):
+    """支持 url 或 text 字段，会自动从文案中提取链接"""
+    content_type = request.headers.get("content-type", "")
+    logger.info(f"[POST] Content-Type: {content_type}")
+
+    body = await request.body()
+    text = body.decode("utf-8", errors="replace")
+    logger.info(f"[POST] 原始 body: {text[:200]}")
+
+    raw = ""
+
+    if "application/json" in content_type:
+        try:
+            data = json.loads(text)
+            raw = data.get("url", "") or data.get("text", "")
+        except json.JSONDecodeError:
+            logger.warning("[POST] JSON 解析失败")
+    elif "application/x-www-form-urlencoded" in content_type:
+        # 表单数据，直接当文本用
+        raw = text
+    else:
+        # 兜底：直接当纯文本
+        raw = text
+
+    raw = raw.strip()
+    if not raw:
+        raise HTTPException(400, "缺少 url 或 text 参数")
+
+    logger.info(f"[POST] 提取到: {raw[:120]}")
+    return await _do_parse(raw)
+
+
+@app.get("/parse")
+async def parse_link_get(url: str = Query(..., description="链接或包含链接的文案")):
+    return await _do_parse(url.strip())
+
+
+async def _do_parse(raw: str) -> dict:
+    url = extract_url(raw)
+    if not url.startswith("http"):
+        url = "https://" + url
+
+    logger.info(f"{'='*60}")
+    logger.info(f"[解析] 原文: {raw[:120]}")
+    logger.info(f"[解析] 提取后: {url}")
+
+    async with httpx.AsyncClient(
+        timeout=30,
+        headers={"User-Agent": IOS_UA},
+        follow_redirects=False,
+    ) as client:
+        # Step 1: 短链
+        resolved_url = url
+        if "v.douyin.com" in url or "jx.douyin.com" in url:
+            resolved_url = await resolve_short_link(url, client)
+            logger.info(f"[解析] 短链解析后: {resolved_url}")
+
+        # Step 2: 查缓存（用 resolved_url 做 key）
+        cached = _check_cache(resolved_url)
+        if cached:
+            return cached
+
+        # Step 3: 平台判断 + 解析
+        platform = _detect_platform(resolved_url)
+        info = None
+        downloaded_files = []
+
+        if "douyin.com" in resolved_url or "iesdouyin.com" in resolved_url:
+            logger.info(f"[解析] 平台: 抖音")
+            vid_info = extract_douyin_id(resolved_url)
+            if vid_info:
+                vid, vtype = vid_info
+                try:
+                    if vtype == "slides":
+                        try:
+                            page_url = f"https://www.douyin.com/video/{vid}"
+                            info = await parse_douyin_video(page_url, client)
+                        except Exception as e:
+                            logger.warning(f"[抖音] 页面解析失败: {e}, 尝试 API")
+                            info = await parse_douyin_slides_api(vid, client)
+                    else:
+                        urls_to_try = [
+                            f"https://m.douyin.com/share/{vtype}/{vid}",
+                            f"https://www.douyin.com/{vtype}/{vid}",
+                        ]
+                        for u in urls_to_try:
+                            try:
+                                info = await parse_douyin_video(u, client)
+                                break
+                            except Exception as e:
+                                logger.warning(f"[抖音] {u} 解析失败: {e}")
+                                continue
+                except Exception as e:
+                    logger.error(f"[抖音] 所有方式失败: {e}")
+                    try:
+                        info = parse_with_ytdlp(resolved_url)
+                    except Exception:
+                        raise HTTPException(500, f"抖音解析失败: {str(e)}")
+            else:
+                try:
+                    info = parse_with_ytdlp(resolved_url)
+                except Exception as e:
+                    raise HTTPException(500, f"解析失败: {str(e)}")
+        else:
+            logger.info(f"[解析] 平台: {platform}, 使用 yt-dlp")
+            try:
+                info = parse_with_ytdlp(resolved_url)
+            except Exception as e:
+                raise HTTPException(500, f"解析失败: {str(e)}")
+
+        if not info:
+            raise HTTPException(500, "解析结果为空")
+
+        # Step 4: 下载
+        try:
+            if info["type"] == "slides" and info.get("image_urls"):
+                logger.info(f"[下载] 图文模式, 共 {len(info['image_urls'])} 张图片")
+                for i, img_url in enumerate(info["image_urls"]):
+                    try:
+                        fpath, rel = await download_file(img_url, ".jpg", client, platform)
+                        downloaded_files.append({
+                            "type": "image",
+                            "filename": fpath.name,
+                            "relative_path": rel,
+                            "url": f"/download/{rel}",
+                        })
+                    except Exception as e:
+                        logger.error(f"[下载] 图片 {i} 失败: {e}")
+                        continue
+            elif info.get("video_url"):
+                if "douyin.com" in resolved_url or "iesdouyin.com" in resolved_url:
+                    logger.info("[下载] 抖音视频直接下载")
+                    fpath, rel = await download_file(info["video_url"], ".mp4", client, platform)
+                    downloaded_files.append({
+                        "type": "video",
+                        "filename": fpath.name,
+                        "relative_path": rel,
+                        "url": f"/download/{rel}",
+                    })
+                else:
+                    logger.info("[下载] yt-dlp 下载")
+                    try:
+                        fpath, rel = download_with_ytdlp(resolved_url, platform)
+                        downloaded_files.append({
+                            "type": "video",
+                            "filename": fpath.name,
+                            "relative_path": rel,
+                            "url": f"/download/{rel}",
+                        })
+                    except Exception:
+                        if info.get("video_url"):
+                            fpath, rel = await download_file(info["video_url"], ".mp4", client, platform)
+                            downloaded_files.append({
+                                "type": "video",
+                                "filename": fpath.name,
+                                "relative_path": rel,
+                                "url": f"/download/{rel}",
+                            })
+            elif info.get("formats"):
+                logger.info("[下载] yt-dlp 格式列表下载")
+                fpath, rel = download_with_ytdlp(resolved_url, platform)
+                downloaded_files.append({
+                    "type": "video",
+                    "filename": fpath.name,
+                    "relative_path": rel,
+                    "url": f"/download/{rel}",
+                })
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"[下载] 异常: {e}", exc_info=True)
+            raise HTTPException(500, f"下载失败: {str(e)}")
+
+    result = {
+        "success": True,
+        "platform": platform,
+        "title": info.get("title", ""),
+        "author": info.get("author", ""),
+        "type": info.get("type", ""),
+        "duration": info.get("duration", 0),
+        "original_url": url,
+        "resolved_url": resolved_url,
+        "files": downloaded_files,
+    }
+
+    # 写入缓存
+    _update_cache(resolved_url, result)
+
+    logger.info(f"[完成] {json.dumps(result, ensure_ascii=False)}")
+    logger.info(f"{'='*60}")
+    return result
+
+
+@app.get("/download/{file_path:path}")
+async def download_file_endpoint(file_path: str):
+    fpath = DOWNLOAD_DIR / file_path
+    if not fpath.exists():
+        raise HTTPException(404, "文件不存在")
+
+    suffix = fpath.suffix.lower()
+    media_types = {
+        ".mp4": "video/mp4", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+        ".png": "image/png", ".webp": "image/webp", ".gif": "image/gif",
+        ".mp3": "audio/mpeg", ".flac": "audio/flac",
+    }
+    media_type = media_types.get(suffix, "application/octet-stream")
+    logger.info(f"[下载接口] 返回: {file_path} ({media_type})")
+    return FileResponse(fpath, media_type=media_type, filename=fpath.name)
+
+
+@app.get("/files")
+async def list_files():
+    files = []
+    for f in sorted(DOWNLOAD_DIR.rglob("*"), key=lambda p: p.stat().st_mtime, reverse=True):
+        if f.is_file():
+            rel = _relative_path(f)
+            files.append({
+                "filename": f.name,
+                "relative_path": rel,
+                "size": f.stat().st_size,
+                "url": f"/download/{rel}",
+            })
+    return {"files": files}
+
+
+@app.delete("/files")
+async def clear_files():
+    """仅列出文件，不删除（文件永久保留）"""
+    count = sum(1 for f in DOWNLOAD_DIR.rglob("*") if f.is_file())
+    return {"total": count, "message": "文件永久保留，不提供删除接口"}
+
+
+if __name__ == "__main__":
+    import uvicorn
+    import shutil
+    logger.info("=" * 60)
+    logger.info("Universal Link Parser API 启动")
+    logger.info("监听: 0.0.0.0:9000")
+    logger.info("Web UI: http://localhost:9000")
+    ffmpeg_path = shutil.which("ffmpeg")
+    logger.info(f"ffmpeg: {ffmpeg_path or '未找到!'}")
+    logger.info("=" * 60)
+    try:
+        uvicorn.run(app, host="0.0.0.0", port=9000, log_level="info")
+    except KeyboardInterrupt:
+        logger.info("收到 Ctrl+C，正在退出...")
+    finally:
+        os._exit(0)

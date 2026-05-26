@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+downloads/
+cache.json
+ffmpeg-master-latest-win64-gpl/
+ffmpeg-master-latest-win64-gpl.zip
+.env
+*.log
+.claude/
