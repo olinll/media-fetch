@@ -8,8 +8,8 @@ function switchTab(tabName) {
   $$('.tab-content').forEach(s => s.classList.add('hidden'));
   $(`#tab-${tabName}`).classList.remove('hidden');
   localStorage.setItem('activeTab', tabName);
-  if (tabName === 'files') loadFiles();
-  if (tabName === 'history') loadHistory();
+  if (tabName === 'files') { if (!$('#files-sentinel')) initFilesObserver(); loadFiles(true); }
+  if (tabName === 'history') loadHistory(1);
   if (tabName === 'logs') loadLogs();
 }
 
@@ -118,88 +118,126 @@ function renderResult(data) {
   $('#parse-result').classList.remove('hidden');
 }
 
-async function loadFiles() {
+let filesPage = 1;
+let filesLoading = false;
+let filesHasMore = true;
+
+function buildFileCard(f) {
+  const ext = f.filename.split('.').pop().toLowerCase();
+  const isVideo = ['mp4','mkv','webm','flv'].includes(ext);
+  const isImage = ['jpg','jpeg','png','webp','gif'].includes(ext);
+  const parts = f.relative_path.split('/');
+  const platform = parts[1] || '';
+  const date = parts[0] || '';
+  let preview = '';
+  if (isVideo) {
+    preview = `<video class="w-full object-cover bg-black" preload="metadata" muted><source src="${f.url}"></video>`;
+  } else if (isImage) {
+    preview = `<img src="${f.url}" class="w-full object-cover" loading="lazy">`;
+  } else {
+    preview = `<div class="w-full aspect-video bg-gray-200 flex items-center justify-center text-gray-400 text-xs">${ext.toUpperCase()}</div>`;
+  }
+  const clickable = (isVideo || isImage) ? `onclick="openLightbox([{url:'${f.url}',type:'${isVideo?'video':'image'}'}], 0)"` : '';
+  return `
+    <div class="wf-item bg-white rounded-lg border border-gray-200 overflow-hidden hover:border-gray-300 transition shadow-sm">
+      <div class="relative cursor-pointer" ${clickable}>${preview}
+        <span class="absolute top-1 left-1 bg-black/50 text-white text-xs px-1.5 py-0.5 rounded">${platform}</span>
+      </div>
+      <div class="p-2.5">
+        <div class="text-xs text-gray-500 truncate mb-1">${f.filename}</div>
+        <div class="flex items-center justify-between">
+          <span class="text-xs text-gray-400">${fmtSize(f.size)} · ${date}</span>
+          <a href="${f.url}" download class="text-blue-600 hover:text-blue-500 text-xs flex-shrink-0" onclick="event.stopPropagation()">下载</a>
+        </div>
+      </div>
+    </div>`;
+}
+
+async function loadFiles(reset = false) {
+  if (filesLoading) return;
+  if (reset) { filesPage = 1; filesHasMore = true; $('#files-grid').innerHTML = ''; }
+  if (!filesHasMore) return;
+  filesLoading = true;
+  $('#files-loading').classList.remove('hidden');
   try {
-    const resp = await fetch('/files');
+    const fp = $('#filter-platform').value;
+    const fd = $('#filter-date').value;
+    const resp = await fetch(`/files?page=${filesPage}&page_size=20&platform=${encodeURIComponent(fp)}&date=${encodeURIComponent(fd)}`);
     const data = await resp.json();
-    const files = data.files || [];
-    const platforms = [...new Set(files.map(f => f.relative_path.split('/')[1] || ''))];
-    const dates = [...new Set(files.map(f => f.relative_path.split('/')[0] || ''))];
-    const pf = $('#filter-platform');
-    const df = $('#filter-date');
-    if (pf.options.length <= 1) platforms.forEach(p => { if (p) pf.add(new Option(p, p)); });
-    if (df.options.length <= 1) dates.forEach(d => { if (d) df.add(new Option(d, d)); });
-    renderFiles(files);
-    pf.onchange = () => renderFiles(files);
-    df.onchange = () => renderFiles(files);
-  } catch (e) { console.error(e); }
-}
-
-function renderFiles(files) {
-  const fp = $('#filter-platform').value;
-  const fd = $('#filter-date').value;
-  const filtered = files.filter(f => {
-    const parts = f.relative_path.split('/');
-    if (fp && parts[1] !== fp) return false;
-    if (fd && parts[0] !== fd) return false;
-    return true;
-  });
-  const grid = $('#files-grid');
-  const empty = $('#files-empty');
-  if (!filtered.length) { grid.innerHTML = ''; empty.classList.remove('hidden'); return; }
-  empty.classList.add('hidden');
-  grid.innerHTML = filtered.map(f => {
-    const ext = f.filename.split('.').pop().toLowerCase();
-    const isVideo = ['mp4','mkv','webm','flv'].includes(ext);
-    const isImage = ['jpg','jpeg','png','webp','gif'].includes(ext);
-    const parts = f.relative_path.split('/');
-    const platform = parts[1] || '';
-    const date = parts[0] || '';
-    let preview = '';
-    if (isVideo) {
-      preview = `<video class="w-full aspect-video object-cover bg-black" preload="metadata" muted><source src="${f.url}"></video>`;
-    } else if (isImage) {
-      preview = `<img src="${f.url}" class="w-full aspect-video object-cover">`;
-    } else {
-      preview = `<div class="w-full aspect-video bg-gray-200 flex items-center justify-center text-gray-400 text-xs">${ext.toUpperCase()}</div>`;
+    const grid = $('#files-grid');
+    const empty = $('#files-empty');
+    if (data.platforms && data.platforms.length && $('#filter-platform').options.length <= 1) {
+      data.platforms.forEach(p => $('#filter-platform').add(new Option(p, p)));
     }
-    const clickable = (isVideo || isImage) ? `onclick="openLightbox([{url:'${f.url}',type:'${isVideo?'video':'image'}'}], 0)"` : '';
-    return `
-      <div class="bg-white rounded-lg border border-gray-200 overflow-hidden hover:border-gray-300 transition shadow-sm">
-        <div class="relative cursor-pointer" ${clickable}>${preview}
-          <span class="absolute top-1 left-1 bg-black/50 text-white text-xs px-1.5 py-0.5 rounded">${platform}</span>
-        </div>
-        <div class="p-3">
-          <div class="text-xs text-gray-500 truncate mb-2">${f.filename}</div>
-          <div class="flex items-center justify-between">
-            <span class="text-xs text-gray-400">${fmtSize(f.size)} · ${date}</span>
-            <a href="${f.url}" download class="text-blue-600 hover:text-blue-500 text-xs" onclick="event.stopPropagation()">下载</a>
-          </div>
-        </div>
-      </div>`;
-  }).join('');
+    if (data.dates && data.dates.length && $('#filter-date').options.length <= 1) {
+      data.dates.forEach(d => $('#filter-date').add(new Option(d, d)));
+    }
+    if (!data.files.length && filesPage === 1) { grid.innerHTML = ''; empty.classList.remove('hidden'); }
+    else { empty.classList.add('hidden'); data.files.forEach(f => grid.insertAdjacentHTML('beforeend', buildFileCard(f))); }
+    filesHasMore = data.has_more;
+    filesPage++;
+  } catch (e) { console.error(e); }
+  finally { filesLoading = false; $('#files-loading').classList.add('hidden'); }
 }
 
-async function loadHistory() {
+const filesSentinel = document.createElement('div');
+filesSentinel.id = 'files-sentinel';
+const filesObserver = new IntersectionObserver(entries => {
+  if (entries[0].isIntersecting && filesHasMore && !filesLoading) loadFiles();
+}, { rootMargin: '200px' });
+
+function initFilesObserver() {
+  const section = $('#tab-files');
+  filesSentinel.style.height = '1px';
+  section.appendChild(filesSentinel);
+  filesObserver.observe(filesSentinel);
+}
+
+$('#filter-platform').onchange = () => loadFiles(true);
+$('#filter-date').onchange = () => loadFiles(true);
+
+let historyPage = 1;
+const historyPageSize = 20;
+
+function buildHistoryCard(e) {
+  return `
+    <div class="bg-white rounded-lg border border-gray-200 p-4 hover:border-gray-300 transition cursor-pointer shadow-sm" onclick="$('#url-input').value='${e.original_url.replace(/'/g, "\\'")}'; $$('.tab-btn')[0].click();">
+      <div class="flex items-center gap-2 mb-1">
+        <span class="bg-blue-50 text-blue-600 text-xs px-2 py-0.5 rounded font-medium">${e.platform}</span>
+        <span class="text-xs text-gray-400">${e.type === 'slides' ? '图文' : '视频'}</span>
+        ${e.files.length ? `<span class="text-xs text-gray-400">${e.files.length} 个文件</span>` : ''}
+      </div>
+      <div class="text-sm font-medium mb-1">${e.title || '(无标题)'}</div>
+      <div class="text-xs text-gray-400 truncate">${e.author ? '@' + e.author : ''} · ${e.original_url.substring(0, 60)}</div>
+    </div>`;
+}
+
+async function loadHistory(page = 1) {
+  historyPage = page;
   try {
-    const resp = await fetch('/api/cache');
+    const resp = await fetch(`/api/cache?page=${page}&page_size=${historyPageSize}`);
     const data = await resp.json();
     const entries = data.entries || [];
     const list = $('#history-list');
     const empty = $('#history-empty');
-    if (!entries.length) { list.innerHTML = ''; empty.classList.remove('hidden'); return; }
+    const pag = $('#history-pagination');
+    if (!entries.length && page === 1) { list.innerHTML = ''; empty.classList.remove('hidden'); pag.innerHTML = ''; return; }
     empty.classList.add('hidden');
-    list.innerHTML = entries.map(e => `
-      <div class="bg-white rounded-lg border border-gray-200 p-4 hover:border-gray-300 transition cursor-pointer shadow-sm" onclick="$('#url-input').value='${e.original_url.replace(/'/g, "\\'")}'; $$('.tab-btn')[0].click();">
-        <div class="flex items-center gap-2 mb-1">
-          <span class="bg-blue-50 text-blue-600 text-xs px-2 py-0.5 rounded font-medium">${e.platform}</span>
-          <span class="text-xs text-gray-400">${e.type === 'slides' ? '图文' : '视频'}</span>
-          ${e.files.length ? `<span class="text-xs text-gray-400">${e.files.length} 个文件</span>` : ''}
-        </div>
-        <div class="text-sm font-medium mb-1">${e.title || '(无标题)'}</div>
-        <div class="text-xs text-gray-400 truncate">${e.author ? '@' + e.author : ''} · ${e.original_url.substring(0, 60)}</div>
-      </div>
-    `).join('');
+    list.innerHTML = entries.map(buildHistoryCard).join('');
+    // 分页按钮
+    const totalPages = Math.ceil(data.total / historyPageSize);
+    if (totalPages <= 1) { pag.innerHTML = ''; return; }
+    let btns = '';
+    btns += `<button class="page-btn" ${page <= 1 ? 'disabled' : ''} onclick="loadHistory(${page - 1})">‹</button>`;
+    for (let i = 1; i <= totalPages; i++) {
+      if (totalPages > 7 && i > 2 && i < totalPages - 1 && Math.abs(i - page) > 1) {
+        if (i === 3 || i === totalPages - 2) btns += '<span class="px-1 text-gray-400">…</span>';
+        continue;
+      }
+      btns += `<button class="page-btn ${i === page ? 'active' : ''}" onclick="loadHistory(${i})">${i}</button>`;
+    }
+    btns += `<button class="page-btn" ${page >= totalPages ? 'disabled' : ''} onclick="loadHistory(${page + 1})">›</button>`;
+    pag.innerHTML = btns;
   } catch (e) { console.error(e); }
 }
 

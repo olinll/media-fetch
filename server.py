@@ -516,8 +516,8 @@ async def get_stats():
 
 
 @app.get("/api/cache")
-async def get_cache():
-    """返回所有缓存条目"""
+async def get_cache(page: int = 1, page_size: int = 20):
+    """返回缓存条目（分页）"""
     cache = _load_cache()
     entries = []
     for url, data in cache.items():
@@ -531,9 +531,11 @@ async def get_cache():
             "original_url": data.get("original_url", ""),
             "files": data.get("files", []),
         })
-    # 按 files 中第一个文件的修改时间倒序（最近的在前）
     entries.sort(key=lambda e: e["files"][0]["relative_path"] if e["files"] else "", reverse=True)
-    return {"entries": entries, "total": len(entries)}
+    total = len(entries)
+    start = (page - 1) * page_size
+    end = start + page_size
+    return {"entries": entries[start:end], "total": total, "page": page, "page_size": page_size, "has_more": end < total}
 
 
 @app.post("/parse")
@@ -748,18 +750,37 @@ async def download_file_endpoint(file_path: str):
 
 
 @app.get("/files")
-async def list_files():
+async def list_files(page: int = 1, page_size: int = 20, platform: str = "", date: str = ""):
     files = []
+    all_platforms = set()
+    all_dates = set()
     for f in sorted(DOWNLOAD_DIR.rglob("*"), key=lambda p: p.stat().st_mtime, reverse=True):
         if f.is_file():
             rel = _relative_path(f)
+            parts = rel.split("/")
+            file_date = parts[0] if len(parts) > 0 else ""
+            file_platform = parts[1] if len(parts) > 1 else ""
+            if file_platform:
+                all_platforms.add(file_platform)
+            if file_date:
+                all_dates.add(file_date)
+            if platform and file_platform != platform:
+                continue
+            if date and file_date != date:
+                continue
             files.append({
                 "filename": f.name,
                 "relative_path": rel,
                 "size": f.stat().st_size,
                 "url": f"/download/{rel}",
             })
-    return {"files": files}
+    total = len(files)
+    start = (page - 1) * page_size
+    end = start + page_size
+    return {
+        "files": files[start:end], "total": total, "page": page, "page_size": page_size, "has_more": end < total,
+        "platforms": sorted(all_platforms), "dates": sorted(all_dates, reverse=True),
+    }
 
 
 @app.delete("/files")
