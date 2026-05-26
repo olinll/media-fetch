@@ -18,7 +18,7 @@
 ### 环境要求
 
 - Python 3.10+
-- FFmpeg（视频转码需要，Windows 下项目已内置）
+- FFmpeg（视频转码需要，自行安装并加入 PATH，或将解压后的 `ffmpeg-master-latest-win64-gpl` 目录放在项目根目录下）
 
 ### 安装
 
