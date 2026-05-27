@@ -208,6 +208,43 @@
           <tr><td class="py-2"><code class="text-green-600 bg-green-50 px-1 rounded">GET</code></td><td><code>/download/{path}</code></td><td>下载已保存的媒体文件</td></tr>
         </tbody>
       </table></div>
+      <p class="text-gray-500 text-xs">其中 <code>/api/*</code> 接口需要认证，<code>/download/*</code> 无需认证。</p>
+    </div>
+
+    <!-- 认证说明 -->
+    <div class="bg-white rounded-lg border border-gray-200 p-5 space-y-4 shadow-sm">
+      <h3 class="font-medium">API Key 认证</h3>
+      <p class="text-gray-600">解析接口 <code>/api/parse</code> 需要在请求中携带 API Key。Key 在服务启动时显示于控制台，也可通过 <code>.env</code> 文件中的 <code>MF_API_KEY</code> 固定配置。</p>
+      <p class="text-gray-600">支持以下三种传参方式（任选其一）：</p>
+      <div class="overflow-x-auto"><table class="w-full text-sm">
+        <thead><tr class="text-gray-500 border-b border-gray-200">
+          <th class="text-left py-1.5">方式</th><th class="text-left py-1.5">示例</th>
+        </tr></thead>
+        <tbody class="text-gray-700">
+          <tr class="border-b border-gray-100">
+            <td class="py-1.5">Header</td>
+            <td><code class="bg-gray-100 px-1 rounded">X-API-Key: your_key</code></td>
+          </tr>
+          <tr class="border-b border-gray-100">
+            <td class="py-1.5">Query 参数</td>
+            <td><code class="bg-gray-100 px-1 rounded">/api/parse?url=...&key=your_key</code></td>
+          </tr>
+          <tr>
+            <td class="py-1.5">JSON Body</td>
+            <td><code class="bg-gray-100 px-1 rounded">{"url": "...", "key": "your_key"}</code></td>
+          </tr>
+        </tbody>
+      </table></div>
+      <pre class="bg-gray-50 border border-gray-200 rounded p-3 text-xs overflow-x-auto"># Header 方式（推荐）
+curl -H "X-API-Key: your_key" "http://localhost:9100/api/parse?url=https://v.douyin.com/xxx/"
+
+# Query 参数方式
+curl "http://localhost:9100/api/parse?url=https://v.douyin.com/xxx/&key=your_key"
+
+# JSON Body 方式
+curl -X POST http://localhost:9100/api/parse \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://v.douyin.com/xxx/", "key": "your_key"}'</pre>
     </div>
 
     <!-- 解析接口 -->
@@ -223,9 +260,10 @@
           </tr></thead>
           <tbody class="text-gray-700">
             <tr><td class="py-1.5"><code>url</code></td><td>query</td><td>是</td><td>链接地址，或包含链接的分享文案</td></tr>
+            <tr><td class="py-1.5"><code>key</code></td><td>query</td><td>否</td><td>API Key（也可通过 Header 传递）</td></tr>
           </tbody>
         </table></div>
-        <pre class="bg-gray-50 border border-gray-200 rounded p-3 text-xs overflow-x-auto">GET /api/parse?url=2.05 复制打开抖音... https://v.douyin.com/xxx/</pre>
+        <pre class="bg-gray-50 border border-gray-200 rounded p-3 text-xs overflow-x-auto">GET /api/parse?url=2.05 复制打开抖音... https://v.douyin.com/xxx/&key=your_key</pre>
       </div>
 
       <div class="space-y-2">

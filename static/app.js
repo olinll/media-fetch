@@ -187,9 +187,9 @@ async function loadFiles(reset = false) {
   finally { filesLoading = false; $('#files-loading').classList.add('hidden'); }
 }
 
-const filesSentinel = document.createElement('div');
+var filesSentinel = document.createElement('div');
 filesSentinel.id = 'files-sentinel';
-const filesObserver = new IntersectionObserver(entries => {
+var filesObserver = new IntersectionObserver(entries => {
   if (entries[0].isIntersecting && filesHasMore && !filesLoading) loadFiles();
 }, { rootMargin: '200px' });
 
@@ -204,7 +204,7 @@ $('#filter-platform').onchange = () => loadFiles(true);
 $('#filter-date').onchange = () => loadFiles(true);
 
 var historyPage = 1;
-const historyPageSize = 20;
+var historyPageSize = 20;
 
 function buildHistoryCard(e) {
   return `
@@ -248,7 +248,7 @@ async function loadHistory(page = 1) {
   } catch (e) { console.error(e); }
 }
 
-let logsTimer = null;
+var logsTimer = null;
 
 async function loadLogs() {
   try {
