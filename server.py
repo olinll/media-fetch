@@ -30,7 +30,6 @@ PREFIX = os.getenv("MF_PREFIX", "").rstrip("/")
 FFMPEG_PATH = os.getenv("MF_FFMPEG_PATH", "")
 DOWNLOADS_DIR = os.getenv("MF_DOWNLOADS_DIR", "")
 API_KEY = os.getenv("MF_API_KEY", "") or secrets.token_urlsafe(16)
-TRUSTED_ORIGINS: set[str] = {ip.strip() for ip in os.getenv("MF_TRUSTED_ORIGINS", "").split(",") if ip.strip()}
 
 # 下载目录（支持相对路径，相对于项目目录）
 if DOWNLOADS_DIR:
@@ -73,12 +72,6 @@ from fastapi.staticfiles import StaticFiles
 
 
 async def verify_api_key(request: Request, x_api_key: str | None = Header(None)):
-    # 检查请求来源（Origin / Referer）是否在信任列表中
-    origin = request.headers.get("origin", "") or request.headers.get("referer", "")
-    if origin:
-        for trusted in TRUSTED_ORIGINS:
-            if origin.startswith(trusted):
-                return
     key = x_api_key or request.query_params.get("key", "")
     if not key and request.method == "POST":
         try:
@@ -728,7 +721,7 @@ async def _do_parse(raw: str) -> dict:
                             "type": "image",
                             "filename": fpath.name,
                             "relative_path": rel,
-                            "url": f"{PREFIX}/api/download/{rel}",
+                            "url": f"{PREFIX}/download/{rel}",
                         })
                     except Exception as e:
                         logger.error(f"[下载] 图片 {i} 失败: {e}")
@@ -741,7 +734,7 @@ async def _do_parse(raw: str) -> dict:
                         "type": "video",
                         "filename": fpath.name,
                         "relative_path": rel,
-                        "url": f"{PREFIX}/api/download/{rel}",
+                        "url": f"{PREFIX}/download/{rel}",
                     })
                 else:
                     logger.info("[下载] yt-dlp 下载")
@@ -751,7 +744,7 @@ async def _do_parse(raw: str) -> dict:
                             "type": "video",
                             "filename": fpath.name,
                             "relative_path": rel,
-                            "url": f"{PREFIX}/api/download/{rel}",
+                            "url": f"{PREFIX}/download/{rel}",
                         })
                     except Exception:
                         if info.get("video_url"):
@@ -760,7 +753,7 @@ async def _do_parse(raw: str) -> dict:
                                 "type": "video",
                                 "filename": fpath.name,
                                 "relative_path": rel,
-                                "url": f"{PREFIX}/api/download/{rel}",
+                                "url": f"{PREFIX}/download/{rel}",
                             })
             elif info.get("formats"):
                 logger.info("[下载] yt-dlp 格式列表下载")
@@ -769,7 +762,7 @@ async def _do_parse(raw: str) -> dict:
                     "type": "video",
                     "filename": fpath.name,
                     "relative_path": rel,
-                    "url": f"{PREFIX}/api/download/{rel}",
+                    "url": f"{PREFIX}/download/{rel}",
                 })
         except HTTPException:
             raise
@@ -799,7 +792,7 @@ async def _do_parse(raw: str) -> dict:
 
 # --- 文件下载 ---
 
-@app.get("/api/download/{file_path:path}", dependencies=[Depends(verify_api_key)])
+@app.get("/download/{file_path:path}")
 async def download_file_endpoint(file_path: str):
     fpath = DOWNLOAD_DIR / file_path
     if not fpath.exists():
@@ -841,7 +834,7 @@ async def list_files(page: int = 1, page_size: int = 20, platform: str = "", dat
                 "filename": f.name,
                 "relative_path": rel,
                 "size": f.stat().st_size,
-                "url": f"{PREFIX}/api/download/{rel}",
+                "url": f"{PREFIX}/download/{rel}",
             })
     total = len(files)
     start = (page - 1) * page_size
@@ -890,8 +883,6 @@ if __name__ == "__main__":
     print(f"    下载目录   {DOWNLOAD_DIR}")
     print(f"    FFmpeg     {ffmpeg_path or '未找到'}")
     print(f"    API Key    {API_KEY}")
-    if TRUSTED_ORIGINS:
-        print(f"    信任来源   {', '.join(sorted(TRUSTED_ORIGINS))}")
     print()
 
     try:
