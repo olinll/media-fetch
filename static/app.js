@@ -125,9 +125,9 @@ function renderResult(data) {
   $('#parse-result').classList.remove('hidden');
 }
 
-let filesPage = 1;
-let filesLoading = false;
-let filesHasMore = true;
+var filesPage = 1;
+var filesLoading = false;
+var filesHasMore = true;
 
 function buildFileCard(f) {
   const ext = f.filename.split('.').pop().toLowerCase();
@@ -203,7 +203,7 @@ function initFilesObserver() {
 $('#filter-platform').onchange = () => loadFiles(true);
 $('#filter-date').onchange = () => loadFiles(true);
 
-let historyPage = 1;
+var historyPage = 1;
 const historyPageSize = 20;
 
 function buildHistoryCard(e) {
