@@ -30,6 +30,7 @@ PREFIX = os.getenv("MF_PREFIX", "").rstrip("/")
 FFMPEG_PATH = os.getenv("MF_FFMPEG_PATH", "")
 DOWNLOADS_DIR = os.getenv("MF_DOWNLOADS_DIR", "")
 API_KEY = os.getenv("MF_API_KEY", "") or secrets.token_urlsafe(16)
+TRUSTED_ORIGINS: set[str] = {ip.strip() for ip in os.getenv("MF_TRUSTED_ORIGINS", "").split(",") if ip.strip()}
 
 # 下载目录（支持相对路径，相对于项目目录）
 if DOWNLOADS_DIR:
@@ -72,6 +73,12 @@ from fastapi.staticfiles import StaticFiles
 
 
 async def verify_api_key(request: Request, x_api_key: str | None = Header(None)):
+    # 检查请求来源（Origin / Referer）是否在信任列表中
+    origin = request.headers.get("origin", "") or request.headers.get("referer", "")
+    if origin:
+        for trusted in TRUSTED_ORIGINS:
+            if origin.startswith(trusted):
+                return
     key = x_api_key or request.query_params.get("key", "")
     if not key and request.method == "POST":
         try:
@@ -883,6 +890,8 @@ if __name__ == "__main__":
     print(f"    下载目录   {DOWNLOAD_DIR}")
     print(f"    FFmpeg     {ffmpeg_path or '未找到'}")
     print(f"    API Key    {API_KEY}")
+    if TRUSTED_ORIGINS:
+        print(f"    信任来源   {', '.join(sorted(TRUSTED_ORIGINS))}")
     print()
 
     try:
