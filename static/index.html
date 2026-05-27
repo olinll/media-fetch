@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>MediaFetch 媒体抓取</title>
-<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="tailwind.min.css">
 <link rel="stylesheet" href="style.css">
 </head>
 <body class="bg-gray-100 text-gray-900 min-h-screen">
@@ -35,7 +35,41 @@
 
 <!-- ========== Tab: 解析 ========== -->
 <section id="tab-parse" class="tab-content">
-  <div class="flex flex-col sm:flex-row gap-2 mb-6">
+  <!-- 装饰区域 -->
+  <div class="text-center mb-6">
+    <div class="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-blue-50 mb-3">
+      <svg class="w-8 h-8 text-blue-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+        <polyline points="7 10 12 15 17 10"/>
+        <line x1="12" y1="15" x2="12" y2="3"/>
+      </svg>
+    </div>
+    <h2 class="text-lg font-semibold text-gray-800 mb-1">粘贴链接，一键解析下载</h2>
+    <p class="text-sm text-gray-400">支持抖音、B站、小红书、TikTok、YouTube 等主流平台</p>
+    <div class="flex flex-wrap justify-center gap-3 mt-3">
+      <span class="inline-flex items-center gap-1 text-xs text-gray-400 bg-white px-2.5 py-1 rounded-full border border-gray-100">
+        <span class="w-1.5 h-1.5 rounded-full bg-pink-400"></span>抖音
+      </span>
+      <span class="inline-flex items-center gap-1 text-xs text-gray-400 bg-white px-2.5 py-1 rounded-full border border-gray-100">
+        <span class="w-1.5 h-1.5 rounded-full bg-sky-400"></span>B站
+      </span>
+      <span class="inline-flex items-center gap-1 text-xs text-gray-400 bg-white px-2.5 py-1 rounded-full border border-gray-100">
+        <span class="w-1.5 h-1.5 rounded-full bg-red-400"></span>小红书
+      </span>
+      <span class="inline-flex items-center gap-1 text-xs text-gray-400 bg-white px-2.5 py-1 rounded-full border border-gray-100">
+        <span class="w-1.5 h-1.5 rounded-full bg-gray-800"></span>TikTok
+      </span>
+      <span class="inline-flex items-center gap-1 text-xs text-gray-400 bg-white px-2.5 py-1 rounded-full border border-gray-100">
+        <span class="w-1.5 h-1.5 rounded-full bg-red-500"></span>YouTube
+      </span>
+      <span class="inline-flex items-center gap-1 text-xs text-gray-400 bg-white px-2.5 py-1 rounded-full border border-gray-100">
+        <span class="w-1.5 h-1.5 rounded-full bg-blue-400"></span>Twitter
+      </span>
+    </div>
+  </div>
+
+  <!-- 输入框 -->
+  <div class="flex flex-col sm:flex-row gap-2 mb-4">
     <div class="relative flex-1">
       <input id="url-input" type="text" placeholder="粘贴抖音分享文案或链接..."
         class="w-full bg-white border border-gray-300 rounded-lg pl-4 pr-20 py-3 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 placeholder-gray-400 shadow-sm">
@@ -54,6 +88,37 @@
         class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg text-sm font-medium transition shadow-sm">
         解析
       </button>
+    </div>
+  </div>
+
+  <!-- 使用提示 -->
+  <div id="parse-tips" class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
+    <div class="bg-white rounded-lg border border-gray-100 p-3 flex gap-3 items-start">
+      <div class="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center flex-shrink-0 mt-0.5">
+        <svg class="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+      </div>
+      <div>
+        <div class="text-sm font-medium text-gray-700">粘贴分享文案</div>
+        <div class="text-xs text-gray-400 mt-0.5">直接粘贴 App 内复制的分享文字即可</div>
+      </div>
+    </div>
+    <div class="bg-white rounded-lg border border-gray-100 p-3 flex gap-3 items-start">
+      <div class="w-8 h-8 rounded-lg bg-green-50 flex items-center justify-center flex-shrink-0 mt-0.5">
+        <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/></svg>
+      </div>
+      <div>
+        <div class="text-sm font-medium text-gray-700">支持短链接</div>
+        <div class="text-xs text-gray-400 mt-0.5">v.douyin.com、b23.tv 等短链会自动跳转</div>
+      </div>
+    </div>
+    <div class="bg-white rounded-lg border border-gray-100 p-3 flex gap-3 items-start">
+      <div class="w-8 h-8 rounded-lg bg-purple-50 flex items-center justify-center flex-shrink-0 mt-0.5">
+        <svg class="w-4 h-4 text-purple-500" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+      </div>
+      <div>
+        <div class="text-sm font-medium text-gray-700">视频 & 图文</div>
+        <div class="text-xs text-gray-400 mt-0.5">自动识别类型，图集支持一键批量下载</div>
+      </div>
     </div>
   </div>
 

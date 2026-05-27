@@ -25,6 +25,9 @@ $('#url-input').addEventListener('keydown', e => { if (e.key === 'Enter') doPars
 
 function clearInput() {
   $('#url-input').value = '';
+  $('#parse-result').classList.add('hidden');
+  $('#parse-error').classList.add('hidden');
+  $('#parse-tips').classList.remove('hidden');
   $('#url-input').focus();
 }
 
@@ -47,6 +50,7 @@ async function doParse() {
   $('#parse-loading').classList.remove('hidden');
   $('#parse-result').classList.add('hidden');
   $('#parse-error').classList.add('hidden');
+  $('#parse-tips').classList.add('hidden');
   $('#parse-btn').disabled = true;
   try {
     const resp = await fetch('/parse', {
@@ -60,6 +64,7 @@ async function doParse() {
   } catch (e) {
     $('#parse-error').textContent = e.message;
     $('#parse-error').classList.remove('hidden');
+    $('#parse-tips').classList.remove('hidden');
   } finally {
     $('#parse-loading').classList.add('hidden');
     $('#parse-btn').disabled = false;

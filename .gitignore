@@ -7,3 +7,5 @@ ffmpeg-master-latest-win64-gpl.zip
 .env
 *.log
 .claude/
+tailwindcss.exe
+tailwind.config.js
