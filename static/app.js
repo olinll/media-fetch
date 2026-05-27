@@ -1,5 +1,7 @@
 const $ = s => document.querySelector(s);
 const $$ = s => document.querySelectorAll(s);
+const BASE = window.BASE_PATH || '';
+const KEY = window.API_KEY || '';
 
 function switchTab(tabName) {
   $$('.tab-btn').forEach(b => { b.classList.remove('tab-active'); b.classList.add('text-gray-500'); });
@@ -53,9 +55,9 @@ async function doParse() {
   $('#parse-tips').classList.add('hidden');
   $('#parse-btn').disabled = true;
   try {
-    const resp = await fetch('/parse', {
+    const resp = await fetch(`${BASE}/api/parse`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-API-Key': KEY },
       body: JSON.stringify({ text: raw })
     });
     const data = await resp.json();
@@ -167,7 +169,7 @@ async function loadFiles(reset = false) {
   try {
     const fp = $('#filter-platform').value;
     const fd = $('#filter-date').value;
-    const resp = await fetch(`/files?page=${filesPage}&page_size=20&platform=${encodeURIComponent(fp)}&date=${encodeURIComponent(fd)}`);
+    const resp = await fetch(`${BASE}/files?page=${filesPage}&page_size=20&platform=${encodeURIComponent(fp)}&date=${encodeURIComponent(fd)}`);
     const data = await resp.json();
     const grid = $('#files-grid');
     const empty = $('#files-empty');
@@ -220,7 +222,7 @@ function buildHistoryCard(e) {
 async function loadHistory(page = 1) {
   historyPage = page;
   try {
-    const resp = await fetch(`/api/cache?page=${page}&page_size=${historyPageSize}`);
+    const resp = await fetch(`${BASE}/cache?page=${page}&page_size=${historyPageSize}`);
     const data = await resp.json();
     const entries = data.entries || [];
     const list = $('#history-list');
@@ -250,7 +252,7 @@ let logsTimer = null;
 
 async function loadLogs() {
   try {
-    const resp = await fetch('/api/logs?limit=200');
+    const resp = await fetch(`${BASE}/logs?limit=200`);
     const data = await resp.json();
     const container = $('#logs-container');
     container.innerHTML = (data.logs || []).map(l =>

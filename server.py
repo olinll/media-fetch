@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import re
+import secrets
 import sys
 import time
 from collections import deque
@@ -15,11 +16,48 @@ from datetime import datetime
 from pathlib import Path
 from random import choice
 
-# ffmpeg 路径：优先项目目录，其次 winget 安装路径
-_FFMPEG_CANDIDATES = [
-    Path(__file__).parent / "ffmpeg-master-latest-win64-gpl" / "bin",
-    Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft" / "WinGet" / "Packages" / "Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe" / "ffmpeg-8.1.1-full_build" / "bin",
-]
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# ======================================================================
+# 配置
+# ======================================================================
+
+BASE_DIR = Path(__file__).parent
+PORT = int(os.getenv("MF_PORT", "9000"))
+PREFIX = os.getenv("MF_PREFIX", "").rstrip("/")
+FFMPEG_PATH = os.getenv("MF_FFMPEG_PATH", "")
+DOWNLOADS_DIR = os.getenv("MF_DOWNLOADS_DIR", "")
+API_KEY = os.getenv("MF_API_KEY", "") or secrets.token_urlsafe(16)
+
+# 下载目录（支持相对路径，相对于项目目录）
+if DOWNLOADS_DIR:
+    _dl_path = Path(DOWNLOADS_DIR)
+    DOWNLOAD_DIR = _dl_path if _dl_path.is_absolute() else BASE_DIR / _dl_path
+else:
+    DOWNLOAD_DIR = BASE_DIR / "downloads"
+DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+CACHE_FILE = BASE_DIR / "cache.json"
+
+# ffmpeg 路径发现（支持相对路径，相对于项目目录）
+_FFMPEG_CANDIDATES = []
+if FFMPEG_PATH:
+    _p = Path(FFMPEG_PATH)
+    if not _p.is_absolute():
+        _p = BASE_DIR / _p
+    if _p.is_file():
+        os.environ["PATH"] = str(_p.parent) + os.pathsep + os.environ.get("PATH", "")
+        os.environ["FFMPEG_LOCATION"] = str(_p)
+    elif _p.is_dir():
+        _FFMPEG_CANDIDATES.append(_p)
+else:
+    _FFMPEG_CANDIDATES.extend([
+        BASE_DIR / "ffmpeg-master-latest-win64-gpl" / "bin",
+        Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft" / "WinGet" / "Packages" / "Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe" / "ffmpeg-8.1.1-full_build" / "bin",
+    ])
+
 for _d in _FFMPEG_CANDIDATES:
     if (_d / "ffmpeg.exe").exists():
         os.environ["PATH"] = str(_d) + os.pathsep + os.environ.get("PATH", "")
@@ -28,9 +66,22 @@ for _d in _FFMPEG_CANDIDATES:
 
 import httpx
 import yt_dlp
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+
+
+async def verify_api_key(request: Request, x_api_key: str | None = Header(None)):
+    key = x_api_key or request.query_params.get("key", "")
+    if not key and request.method == "POST":
+        try:
+            body = await request.json()
+            if isinstance(body, dict):
+                key = body.get("key", "")
+        except Exception:
+            pass
+    if key != API_KEY:
+        raise HTTPException(401, "无效的 API Key")
 
 # ======================================================================
 # Logging + 内存日志收集
@@ -56,10 +107,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger("parser")
 
-app = FastAPI(title="Universal Link Parser", version="1.0.0")
+app = FastAPI(title="Universal Link Parser", version="1.0.0", root_path=PREFIX)
 
 # 挂载静态文件
-_STATIC_DIR = Path(__file__).parent / "static"
+_STATIC_DIR = BASE_DIR / "static"
 _STATIC_DIR.mkdir(exist_ok=True)
 app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
@@ -71,10 +122,6 @@ async def log_requests(request: Request, call_next):
     logger.info(f"<<< {request.method} {request.url.path}  status={resp.status_code}")
     return resp
 
-
-BASE_DIR = Path(__file__).parent
-DOWNLOAD_DIR = BASE_DIR / "downloads"
-CACHE_FILE = BASE_DIR / "cache.json"
 
 IOS_UA = (
     "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) "
@@ -182,7 +229,7 @@ def extract_url(text: str) -> str:
     m = re.search(r"https?://[^\s]+", text)
     if m:
         url = m.group(0).rstrip("/")
-        url = re.sub(r"[，。！？、；：）】》\u200b]+$", "", url)
+        url = re.sub(r"[，。！？、；：）】》​]+$", "", url)
         logger.info(f"[提取] 从文案中提取到 URL: {url}")
         return url
     logger.warning(f"[提取] 未找到 URL，原文: {text[:80]}")
@@ -465,26 +512,35 @@ def _detect_platform(url: str) -> str:
 
 
 # ======================================================================
+# 前端配置注入
+# ======================================================================
+
+def _write_config_js():
+    content = f"window.BASE_PATH = '{PREFIX}';\nwindow.API_KEY = '{API_KEY}';\n"
+    (_STATIC_DIR / "config.js").write_text(content, encoding="utf-8")
+
+_write_config_js()
+
+
+# ======================================================================
 # API Routes
 # ======================================================================
 
 @app.get("/")
 async def index():
-    return RedirectResponse(url="/static/index.html")
+    return RedirectResponse(url=f"{PREFIX}/static/index.html")
 
 
-# ======================================================================
-# 新增 API: 日志、统计、缓存
-# ======================================================================
+# --- 日志、统计、缓存 ---
 
-@app.get("/api/logs")
+@app.get("/logs")
 async def get_logs(limit: int = Query(100, ge=1, le=500)):
     """返回最近 N 条日志"""
     items = list(LOG_BUFFER)[-limit:]
     return {"logs": items, "total": len(LOG_BUFFER)}
 
 
-@app.get("/api/stats")
+@app.get("/stats")
 async def get_stats():
     """统计信息"""
     total_files = 0
@@ -515,7 +571,7 @@ async def get_stats():
     }
 
 
-@app.get("/api/cache")
+@app.get("/cache")
 async def get_cache(page: int = 1, page_size: int = 20):
     """返回缓存条目（分页）"""
     cache = _load_cache()
@@ -538,7 +594,9 @@ async def get_cache(page: int = 1, page_size: int = 20):
     return {"entries": entries[start:end], "total": total, "page": page, "page_size": page_size, "has_more": end < total}
 
 
-@app.post("/parse")
+# --- 解析 ---
+
+@app.post("/api/parse", dependencies=[Depends(verify_api_key)])
 async def parse_link_post(request: Request):
     """支持 url 或 text 字段，会自动从文案中提取链接"""
     content_type = request.headers.get("content-type", "")
@@ -571,7 +629,7 @@ async def parse_link_post(request: Request):
     return await _do_parse(raw)
 
 
-@app.get("/parse")
+@app.get("/api/parse", dependencies=[Depends(verify_api_key)])
 async def parse_link_get(url: str = Query(..., description="链接或包含链接的文案")):
     return await _do_parse(url.strip())
 
@@ -592,7 +650,7 @@ async def _do_parse(raw: str) -> dict:
     ) as client:
         # Step 1: 短链
         resolved_url = url
-        if "v.douyin.com" in url or "jx.douyin.com" in url:
+        if any(d in url for d in ("v.douyin.com", "jx.douyin.com", "b23.tv", "xhslink.com")):
             resolved_url = await resolve_short_link(url, client)
             logger.info(f"[解析] 短链解析后: {resolved_url}")
 
@@ -663,7 +721,7 @@ async def _do_parse(raw: str) -> dict:
                             "type": "image",
                             "filename": fpath.name,
                             "relative_path": rel,
-                            "url": f"/download/{rel}",
+                            "url": f"{PREFIX}/api/download/{rel}",
                         })
                     except Exception as e:
                         logger.error(f"[下载] 图片 {i} 失败: {e}")
@@ -676,7 +734,7 @@ async def _do_parse(raw: str) -> dict:
                         "type": "video",
                         "filename": fpath.name,
                         "relative_path": rel,
-                        "url": f"/download/{rel}",
+                        "url": f"{PREFIX}/api/download/{rel}",
                     })
                 else:
                     logger.info("[下载] yt-dlp 下载")
@@ -686,7 +744,7 @@ async def _do_parse(raw: str) -> dict:
                             "type": "video",
                             "filename": fpath.name,
                             "relative_path": rel,
-                            "url": f"/download/{rel}",
+                            "url": f"{PREFIX}/api/download/{rel}",
                         })
                     except Exception:
                         if info.get("video_url"):
@@ -695,7 +753,7 @@ async def _do_parse(raw: str) -> dict:
                                 "type": "video",
                                 "filename": fpath.name,
                                 "relative_path": rel,
-                                "url": f"/download/{rel}",
+                                "url": f"{PREFIX}/api/download/{rel}",
                             })
             elif info.get("formats"):
                 logger.info("[下载] yt-dlp 格式列表下载")
@@ -704,7 +762,7 @@ async def _do_parse(raw: str) -> dict:
                     "type": "video",
                     "filename": fpath.name,
                     "relative_path": rel,
-                    "url": f"/download/{rel}",
+                    "url": f"{PREFIX}/api/download/{rel}",
                 })
         except HTTPException:
             raise
@@ -732,7 +790,9 @@ async def _do_parse(raw: str) -> dict:
     return result
 
 
-@app.get("/download/{file_path:path}")
+# --- 文件下载 ---
+
+@app.get("/api/download/{file_path:path}", dependencies=[Depends(verify_api_key)])
 async def download_file_endpoint(file_path: str):
     fpath = DOWNLOAD_DIR / file_path
     if not fpath.exists():
@@ -748,6 +808,8 @@ async def download_file_endpoint(file_path: str):
     logger.info(f"[下载接口] 返回: {file_path} ({media_type})")
     return FileResponse(fpath, media_type=media_type, filename=fpath.name)
 
+
+# --- 文件列表 ---
 
 @app.get("/files")
 async def list_files(page: int = 1, page_size: int = 20, platform: str = "", date: str = ""):
@@ -772,7 +834,7 @@ async def list_files(page: int = 1, page_size: int = 20, platform: str = "", dat
                 "filename": f.name,
                 "relative_path": rel,
                 "size": f.stat().st_size,
-                "url": f"/download/{rel}",
+                "url": f"{PREFIX}/api/download/{rel}",
             })
     total = len(files)
     start = (page - 1) * page_size
@@ -791,17 +853,40 @@ async def clear_files():
 
 
 if __name__ == "__main__":
+    import socket
     import uvicorn
     import shutil
-    logger.info("=" * 60)
-    logger.info("Universal Link Parser API 启动")
-    logger.info("监听: 0.0.0.0:9000")
-    logger.info("Web UI: http://localhost:9000")
+
+    def _get_local_ips():
+        ips = []
+        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            ip = info[4][0]
+            if ip != "127.0.0.1" and ip not in ips:
+                ips.append(ip)
+        return ips
+
     ffmpeg_path = shutil.which("ffmpeg")
-    logger.info(f"ffmpeg: {ffmpeg_path or '未找到!'}")
-    logger.info("=" * 60)
+    prefix_display = PREFIX or "/"
+    local_url = f"http://localhost:{PORT}{prefix_display}".rstrip("/") + "/"
+    network_urls = [f"http://{ip}:{PORT}{prefix_display}".rstrip("/") + "/" for ip in _get_local_ips()]
+
+    print()
+    print("  MediaFetch 媒体抓取")
+    print()
+    print(f"  -> Local:   {local_url}")
+    for url in network_urls:
+        print(f"  -> Network: {url}")
+    print()
+    print("  配置:")
+    print(f"    端口       {PORT}")
+    print(f"    路径前缀   {PREFIX or '/'}")
+    print(f"    下载目录   {DOWNLOAD_DIR}")
+    print(f"    FFmpeg     {ffmpeg_path or '未找到'}")
+    print(f"    API Key    {API_KEY}")
+    print()
+
     try:
-        uvicorn.run(app, host="0.0.0.0", port=9000, log_level="info")
+        uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="info")
     except KeyboardInterrupt:
         logger.info("收到 Ctrl+C，正在退出...")
     finally:

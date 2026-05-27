@@ -19,7 +19,7 @@
     </svg>
     <h1 class="text-base sm:text-lg font-bold text-blue-600">MediaFetch <span class="text-gray-400 font-normal text-sm hidden sm:inline">媒体抓取</span></h1>
   </div>
-  <span id="status-dot" class="text-xs text-gray-400">●</span>
+  <span id="status-dot" class="text-xs text-gray-400"></span>
 </header>
 
 <!-- Tabs -->
@@ -203,17 +203,83 @@
           <th class="text-left py-2">方法</th><th class="text-left py-2">路径</th><th class="text-left py-2">说明</th>
         </tr></thead>
         <tbody class="text-gray-700">
-          <tr class="border-b border-gray-100"><td class="py-2"><code class="text-green-600 bg-green-50 px-1 rounded">GET</code></td><td><code>/parse?url=</code></td><td>解析链接或分享文案</td></tr>
-          <tr class="border-b border-gray-100"><td class="py-2"><code class="text-yellow-600 bg-yellow-50 px-1 rounded">POST</code></td><td><code>/parse</code></td><td>同上，JSON body</td></tr>
-          <tr class="border-b border-gray-100"><td class="py-2"><code class="text-green-600 bg-green-50 px-1 rounded">GET</code></td><td><code>/download/{path}</code></td><td>下载文件</td></tr>
-          <tr class="border-b border-gray-100"><td class="py-2"><code class="text-green-600 bg-green-50 px-1 rounded">GET</code></td><td><code>/files</code></td><td>文件列表</td></tr>
-          <tr class="border-b border-gray-100"><td class="py-2"><code class="text-green-600 bg-green-50 px-1 rounded">GET</code></td><td><code>/api/logs</code></td><td>运行日志</td></tr>
-          <tr class="border-b border-gray-100"><td class="py-2"><code class="text-green-600 bg-green-50 px-1 rounded">GET</code></td><td><code>/api/stats</code></td><td>统计信息</td></tr>
-          <tr><td class="py-2"><code class="text-green-600 bg-green-50 px-1 rounded">GET</code></td><td><code>/api/cache</code></td><td>缓存记录</td></tr>
+          <tr class="border-b border-gray-100"><td class="py-2"><code class="text-green-600 bg-green-50 px-1 rounded">GET</code></td><td><code>/api/parse?url=</code></td><td>解析链接或分享文案</td></tr>
+          <tr class="border-b border-gray-100"><td class="py-2"><code class="text-yellow-600 bg-yellow-50 px-1 rounded">POST</code></td><td><code>/api/parse</code></td><td>同上，支持 JSON / 表单 / 纯文本</td></tr>
+          <tr><td class="py-2"><code class="text-green-600 bg-green-50 px-1 rounded">GET</code></td><td><code>/api/download/{path}</code></td><td>下载已保存的媒体文件</td></tr>
         </tbody>
       </table></div>
     </div>
 
+    <!-- 解析接口 -->
+    <div class="bg-white rounded-lg border border-gray-200 p-5 space-y-4 shadow-sm">
+      <h3 class="font-medium">1. 解析链接</h3>
+      <p class="text-gray-600">从分享文案或链接中提取 URL，解析并下载媒体文件。重复链接直接返回缓存结果。</p>
+
+      <div class="space-y-2">
+        <div class="font-medium text-gray-700">GET <code class="bg-gray-100 px-1 rounded">/api/parse?url=</code></div>
+        <div class="overflow-x-auto"><table class="w-full text-sm">
+          <thead><tr class="text-gray-500 border-b border-gray-200">
+            <th class="text-left py-1.5">参数</th><th class="text-left py-1.5">位置</th><th class="text-left py-1.5">必填</th><th class="text-left py-1.5">说明</th>
+          </tr></thead>
+          <tbody class="text-gray-700">
+            <tr><td class="py-1.5"><code>url</code></td><td>query</td><td>是</td><td>链接地址，或包含链接的分享文案</td></tr>
+          </tbody>
+        </table></div>
+        <pre class="bg-gray-50 border border-gray-200 rounded p-3 text-xs overflow-x-auto">GET /api/parse?url=2.05 复制打开抖音... https://v.douyin.com/xxx/</pre>
+      </div>
+
+      <div class="space-y-2">
+        <div class="font-medium text-gray-700">POST <code class="bg-gray-100 px-1 rounded">/api/parse</code></div>
+        <p class="text-gray-600">功能与 GET 相同，支持多种请求体格式：</p>
+        <div class="overflow-x-auto"><table class="w-full text-sm">
+          <thead><tr class="text-gray-500 border-b border-gray-200">
+            <th class="text-left py-1.5">Content-Type</th><th class="text-left py-1.5">格式</th><th class="text-left py-1.5">说明</th>
+          </tr></thead>
+          <tbody class="text-gray-700">
+            <tr class="border-b border-gray-100"><td class="py-1.5"><code>application/json</code></td><td><code>{"url": "..."}</code> 或 <code>{"text": "..."}</code></td><td>JSON 对象，url 或 text 二选一</td></tr>
+            <tr class="border-b border-gray-100"><td class="py-1.5"><code>application/x-www-form-urlencoded</code></td><td>原始文本</td><td>表单数据直接当文本解析</td></tr>
+            <tr><td class="py-1.5">其他</td><td>原始文本</td><td>请求体直接当文本解析</td></tr>
+          </tbody>
+        </table></div>
+        <pre class="bg-gray-50 border border-gray-200 rounded p-3 text-xs overflow-x-auto">POST /api/parse
+Content-Type: application/json
+
+{"text": "2.05 复制打开抖音... https://v.douyin.com/xxx/"}</pre>
+      </div>
+
+      <div class="space-y-2">
+        <div class="font-medium text-gray-700">响应示例</div>
+        <pre class="bg-gray-50 border border-gray-200 rounded p-3 text-xs overflow-x-auto">{
+  "success": true,
+  "platform": "抖音",
+  "title": "流萤AI图。9比16的图...",
+  "author": "知了知了",
+  "type": "slides",
+  "duration": 0,
+  "original_url": "https://v.douyin.com/LHUsGRLYwLg/",
+  "resolved_url": "https://www.douyin.com/note/7521023890996514083",
+  "files": [
+    {
+      "type": "image",
+      "filename": "1748234567_a1b2c3.jpg",
+      "relative_path": "20260526/抖音/1748234567_a1b2c3.jpg",
+      "url": "/api/download/20260526/抖音/1748234567_a1b2c3.jpg"
+    }
+  ]
+}</pre>
+        <p class="text-gray-500 text-xs">缓存命中时响应会额外包含 <code>"cached": true</code> 字段。</p>
+      </div>
+    </div>
+
+    <!-- 下载接口 -->
+    <div class="bg-white rounded-lg border border-gray-200 p-5 space-y-4 shadow-sm">
+      <h3 class="font-medium">2. 下载文件</h3>
+      <p class="text-gray-600">下载已解析并保存到服务器的媒体文件，路径从解析结果的 <code>url</code> 字段获取。</p>
+      <pre class="bg-gray-50 border border-gray-200 rounded p-3 text-xs overflow-x-auto">GET /api/download/20260526/抖音/1748234567_a1b2c3.mp4</pre>
+      <p class="text-gray-600">返回对应文件，Content-Type 根据扩展名自动判断（mp4、jpg、png、webp、gif、mp3、flac）。</p>
+    </div>
+
+    <!-- 支持平台 -->
     <div class="bg-white rounded-lg border border-gray-200 p-5 space-y-4 shadow-sm">
       <h3 class="font-medium">支持平台</h3>
       <div class="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm text-gray-700">
@@ -228,23 +294,22 @@
       </div>
     </div>
 
+    <!-- 文件存储结构 -->
     <div class="bg-white rounded-lg border border-gray-200 p-5 space-y-4 shadow-sm">
-      <h3 class="font-medium">iOS 捷径配置</h3>
-      <ol class="list-decimal list-inside space-y-2 text-gray-700">
-        <li><b>获取剪贴板</b></li>
-        <li><b>URL 编码</b> 对剪贴板内容编码</li>
-        <li><b>文本</b> 拼接：<code class="bg-gray-100 px-1 rounded">http://你的IP:9000/parse?url=</code> + 编码结果</li>
-        <li><b>获取 URL 内容</b> (GET)</li>
-        <li><b>从字典中获取值</b> 键: <code class="bg-gray-100 px-1 rounded">files</code></li>
-        <li><b>对列表中的每个项目重复</b> → 下载文件</li>
-      </ol>
+      <h3 class="font-medium">文件存储结构</h3>
+      <pre class="bg-gray-50 border border-gray-200 rounded p-3 text-xs overflow-x-auto">downloads/
+├── 20260526/
+│   ├── 抖音/
+│   │   ├── 1748234567_a1b2c3.mp4
+│   │   └── 1748234890_d4e5f6.jpg
+│   └── B站/
+│       └── 1748235000_f7g8h9.mp4
+└── 20260527/
+    └── YouTube/
+        └── 1748321000_l3m4n5.mp4</pre>
+      <p class="text-gray-600">路径格式: <code>downloads/{日期}/{平台}/{时间戳_随机6位}.{扩展名}</code></p>
     </div>
 
-    <div class="bg-white rounded-lg border border-gray-200 p-5 space-y-3 shadow-sm">
-      <h3 class="font-medium">POST /parse 请求体</h3>
-      <pre class="bg-gray-50 border border-gray-200 rounded p-3 text-xs overflow-x-auto break-all"><code>{"url": "2.05 复制打开抖音... https://v.douyin.com/xxx/"}</code></pre>
-      <pre class="bg-gray-50 border border-gray-200 rounded p-3 text-xs overflow-x-auto break-all"><code>{"text": "同上，用 text 字段也行"}</code></pre>
-    </div>
   </div>
 </section>
 
@@ -259,6 +324,7 @@
   <div id="lb-counter" class="lb-counter"></div>
 </div>
 
+<script src="config.js"></script>
 <script src="app.js" defer></script>
 </body>
 </html>
