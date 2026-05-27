@@ -809,6 +809,22 @@ async def download_file_endpoint(file_path: str):
     return FileResponse(fpath, media_type=media_type, filename=fpath.name)
 
 
+@app.get("/api/download/{file_path:path}", dependencies=[Depends(verify_api_key)])
+async def api_download_file_endpoint(file_path: str):
+    fpath = DOWNLOAD_DIR / file_path
+    if not fpath.exists():
+        raise HTTPException(404, "文件不存在")
+    suffix = fpath.suffix.lower()
+    media_types = {
+        ".mp4": "video/mp4", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+        ".png": "image/png", ".webp": "image/webp", ".gif": "image/gif",
+        ".mp3": "audio/mpeg", ".flac": "audio/flac",
+    }
+    media_type = media_types.get(suffix, "application/octet-stream")
+    logger.info(f"[下载接口] 返回: {file_path} ({media_type})")
+    return FileResponse(fpath, media_type=media_type, filename=fpath.name)
+
+
 # --- 文件列表 ---
 
 @app.get("/files")

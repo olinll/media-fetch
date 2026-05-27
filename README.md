@@ -26,6 +26,22 @@
 pip install -r requirements.txt
 ```
 
+### 配置
+
+复制 `.env.example` 为 `.env`，按需修改：
+
+```bash
+cp .env.example .env
+```
+
+| 环境变量 | 默认值 | 说明 |
+|---------|--------|------|
+| `MF_PORT` | `9000` | 监听端口 |
+| `MF_PREFIX` | 空 | 路径前缀，反向代理子路径部署时使用，如 `/download` |
+| `MF_FFMPEG_PATH` | 自动发现 | FFmpeg 可执行文件路径或目录 |
+| `MF_DOWNLOADS_DIR` | `./downloads` | 下载文件存储目录，支持绝对路径和相对路径 |
+| `MF_API_KEY` | 每次启动随机生成 | API 访问密钥，控制台输出 |
+
 ### 启动
 
 ```bash
@@ -33,6 +49,26 @@ python server.py
 ```
 
 服务启动后访问 http://localhost:9000 即可使用 Web UI。
+
+## API
+
+`/api/*` 接口需要 API Key 认证，支持三种传参方式：
+
+| 方式 | 示例 |
+|------|------|
+| Header | `X-API-Key: your_key` |
+| Query 参数 | `/api/parse?url=...&key=your_key` |
+| JSON Body | `{"url": "...", "key": "your_key"}` |
+
+### 接口列表
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/parse?url=` | 解析链接或分享文案 |
+| POST | `/api/parse` | 同上，支持 JSON / 表单 / 纯文本 |
+| GET | `/api/download/{path}` | 下载已保存的媒体文件 |
+
+详细的参数和响应说明请访问 Web UI 内的「说明」页面。
 
 ## 技术栈
 
@@ -47,7 +83,7 @@ python server.py
 media-fetch/
 ├── server.py           # 后端服务
 ├── requirements.txt    # Python 依赖
-├── API.md              # API 接口文档
+├── .env.example        # 配置模板
 ├── static/
 │   ├── index.html      # Web UI 页面结构
 │   ├── style.css       # 自定义样式

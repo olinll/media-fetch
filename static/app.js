@@ -3,6 +3,17 @@ const $$ = s => document.querySelectorAll(s);
 const BASE = window.BASE_PATH || '';
 const KEY = window.API_KEY || '';
 
+var filesPage = 1;
+var filesLoading = false;
+var filesHasMore = true;
+var historyPage = 1;
+var historyPageSize = 20;
+var logsTimer = null;
+var filesSentinel = document.createElement('div');
+var filesObserver = new IntersectionObserver(entries => {
+  if (entries[0].isIntersecting && filesHasMore && !filesLoading) loadFiles();
+}, { rootMargin: '200px' });
+
 function switchTab(tabName) {
   $$('.tab-btn').forEach(b => { b.classList.remove('tab-active'); b.classList.add('text-gray-500'); });
   const target = $(`.tab-btn[data-tab="${tabName}"]`);
@@ -125,10 +136,6 @@ function renderResult(data) {
   $('#parse-result').classList.remove('hidden');
 }
 
-var filesPage = 1;
-var filesLoading = false;
-var filesHasMore = true;
-
 function buildFileCard(f) {
   const ext = f.filename.split('.').pop().toLowerCase();
   const isVideo = ['mp4','mkv','webm','flv'].includes(ext);
@@ -187,11 +194,7 @@ async function loadFiles(reset = false) {
   finally { filesLoading = false; $('#files-loading').classList.add('hidden'); }
 }
 
-var filesSentinel = document.createElement('div');
 filesSentinel.id = 'files-sentinel';
-var filesObserver = new IntersectionObserver(entries => {
-  if (entries[0].isIntersecting && filesHasMore && !filesLoading) loadFiles();
-}, { rootMargin: '200px' });
 
 function initFilesObserver() {
   const section = $('#tab-files');
@@ -202,9 +205,6 @@ function initFilesObserver() {
 
 $('#filter-platform').onchange = () => loadFiles(true);
 $('#filter-date').onchange = () => loadFiles(true);
-
-var historyPage = 1;
-var historyPageSize = 20;
 
 function buildHistoryCard(e) {
   return `
@@ -247,8 +247,6 @@ async function loadHistory(page = 1) {
     pag.innerHTML = btns;
   } catch (e) { console.error(e); }
 }
-
-var logsTimer = null;
 
 async function loadLogs() {
   try {

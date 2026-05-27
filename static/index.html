@@ -205,7 +205,7 @@
         <tbody class="text-gray-700">
           <tr class="border-b border-gray-100"><td class="py-2"><code class="text-green-600 bg-green-50 px-1 rounded">GET</code></td><td><code>/api/parse?url=</code></td><td>解析链接或分享文案</td></tr>
           <tr class="border-b border-gray-100"><td class="py-2"><code class="text-yellow-600 bg-yellow-50 px-1 rounded">POST</code></td><td><code>/api/parse</code></td><td>同上，支持 JSON / 表单 / 纯文本</td></tr>
-          <tr><td class="py-2"><code class="text-green-600 bg-green-50 px-1 rounded">GET</code></td><td><code>/download/{path}</code></td><td>下载已保存的媒体文件</td></tr>
+          <tr><td class="py-2"><code class="text-green-600 bg-green-50 px-1 rounded">GET</code></td><td><code>/api/download/{path}</code></td><td>下载已保存的媒体文件（需 Key）</td></tr>
         </tbody>
       </table></div>
       <p class="text-gray-500 text-xs">其中 <code>/api/*</code> 接口需要认证，<code>/download/*</code> 无需认证。</p>
@@ -301,7 +301,7 @@ Content-Type: application/json
       "type": "image",
       "filename": "1748234567_a1b2c3.jpg",
       "relative_path": "20260526/抖音/1748234567_a1b2c3.jpg",
-      "url": "/download/20260526/抖音/1748234567_a1b2c3.jpg"
+      "url": "/api/download/20260526/抖音/1748234567_a1b2c3.jpg"
     }
   ]
 }</pre>
@@ -312,8 +312,8 @@ Content-Type: application/json
     <!-- 下载接口 -->
     <div class="bg-white rounded-lg border border-gray-200 p-5 space-y-4 shadow-sm">
       <h3 class="font-medium">2. 下载文件</h3>
-      <p class="text-gray-600">下载已解析并保存到服务器的媒体文件，路径从解析结果的 <code>url</code> 字段获取。</p>
-      <pre class="bg-gray-50 border border-gray-200 rounded p-3 text-xs overflow-x-auto">GET /download/20260526/抖音/1748234567_a1b2c3.mp4</pre>
+      <p class="text-gray-600">下载已解析并保存到服务器的媒体文件，路径从解析结果的 <code>url</code> 字段获取。需要 API Key 认证。</p>
+      <pre class="bg-gray-50 border border-gray-200 rounded p-3 text-xs overflow-x-auto">GET /api/download/20260526/抖音/1748234567_a1b2c3.mp4</pre>
       <p class="text-gray-600">返回对应文件，Content-Type 根据扩展名自动判断（mp4、jpg、png、webp、gif、mp3、flac）。</p>
     </div>
 
