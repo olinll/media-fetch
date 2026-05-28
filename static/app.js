@@ -119,7 +119,7 @@ function renderResult(data) {
 
   if (videos.length) {
     videos.forEach(f => {
-      mediaEl.innerHTML += `<video controls class="w-full max-h-[60vh] bg-black cursor-pointer" preload="metadata" onclick="openLightbox(${JSON.stringify(data.files.map(x=>({url:x.url,type:x.type}))).replace(/"/g,'&quot;')}, ${data.files.indexOf(f)})"><source src="${f.url}" type="video/mp4"></video>`;
+      mediaEl.innerHTML += `<video controls playsinline class="w-full max-h-[60vh] bg-black cursor-pointer" preload="metadata" onclick="openLightbox(${JSON.stringify(data.files.map(x=>({url:x.url,type:x.type}))).replace(/"/g,'&quot;')}, ${data.files.indexOf(f)})"><source src="${f.url}" type="video/mp4"></video>`;
     });
   }
   if (images.length) {
@@ -178,7 +178,7 @@ function renderBatchResult(data) {
       let mediaHtml = '';
       if (videos.length) {
         mediaHtml += videos.map(f => `
-          <video controls class="w-full max-h-48 bg-black" preload="metadata">
+          <video controls playsinline class="w-full max-h-48 bg-black" preload="metadata">
             <source src="${f.url}" type="video/mp4">
           </video>
         `).join('');
@@ -252,7 +252,12 @@ function buildFileCard(f) {
   const date = parts[0] || '';
   let preview = '';
   if (isVideo) {
-    preview = `<video class="w-full object-cover bg-black" preload="metadata" muted><source src="${f.url}"></video>`;
+    preview = `<div class="relative aspect-video bg-black">
+      <img src="${f.thumb || ''}" class="w-full h-full object-cover" loading="lazy" onerror="this.style.display='none'">
+      <div class="absolute inset-0 flex items-center justify-center">
+        <svg class="w-10 h-10 text-white/80 drop-shadow" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+      </div>
+    </div>`;
   } else if (isImage) {
     preview = `<img src="${f.thumb || f.url}" class="w-full object-cover" loading="lazy">`;
   } else {
@@ -394,7 +399,7 @@ function closeLightbox() {
 function renderLightbox() {
   const item = lbItems[lbIndex];
   const el = item.type === 'video'
-    ? `<video controls autoplay class="rounded" style="max-width:95vw;max-height:90vh"><source src="${item.url}" type="video/mp4"></video>`
+    ? `<video controls autoplay playsinline class="rounded" style="max-width:95vw;max-height:90vh"><source src="${item.url}" type="video/mp4"></video>`
     : `<img src="${item.url}" class="rounded">`;
   $('#lb-content').innerHTML = el;
   $('#lb-counter').textContent = lbItems.length > 1 ? `${lbIndex + 1} / ${lbItems.length}` : '';

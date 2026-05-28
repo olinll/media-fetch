@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import re
+import subprocess
 import sys
 import threading
 import time
@@ -495,25 +496,48 @@ async def download_file(url: str, suffix: str, client: httpx.AsyncClient, platfo
 
 
 def _generate_thumb(original: Path):
-    """为图片生成缩略图，存储在 THUMB_DIR 下"""
-    if original.suffix.lower() not in (".jpg", ".jpeg", ".png", ".webp", ".gif"):
-        return
+    """为图片/视频生成缩略图，存储在 THUMB_DIR 下"""
+    suffix = original.suffix.lower()
     thumb_path = THUMB_DIR / _relative_path(original)
     if thumb_path.exists():
         return
-    try:
-        thumb_path.parent.mkdir(parents=True, exist_ok=True)
-        img = Image.open(original)
-        if img.width > THUMB_MAX_WIDTH:
-            ratio = THUMB_MAX_WIDTH / img.width
-            new_size = (THUMB_MAX_WIDTH, int(img.height * ratio))
-            img = img.resize(new_size, Image.LANCZOS)
-        if img.mode in ("RGBA", "P"):
-            img = img.convert("RGB")
-        img.save(thumb_path, "JPEG", quality=THUMB_QUALITY, optimize=True)
-        logger.info(f"[缩略图] 生成: {thumb_path.name}")
-    except Exception as e:
-        logger.warning(f"[缩略图] 生成失败: {original.name} - {e}")
+
+    # 图片缩略图
+    if suffix in (".jpg", ".jpeg", ".png", ".webp", ".gif"):
+        try:
+            thumb_path.parent.mkdir(parents=True, exist_ok=True)
+            img = Image.open(original)
+            if img.width > THUMB_MAX_WIDTH:
+                ratio = THUMB_MAX_WIDTH / img.width
+                new_size = (THUMB_MAX_WIDTH, int(img.height * ratio))
+                img = img.resize(new_size, Image.LANCZOS)
+            if img.mode in ("RGBA", "P"):
+                img = img.convert("RGB")
+            img.save(thumb_path, "JPEG", quality=THUMB_QUALITY, optimize=True)
+            logger.info(f"[缩略图] 生成: {thumb_path.name}")
+        except Exception as e:
+            logger.warning(f"[缩略图] 生成失败: {original.name} - {e}")
+
+    # 视频缩略图（FFmpeg 截取第 1 秒）
+    elif suffix in (".mp4", ".mkv", ".webm", ".flv", ".mov", ".avi"):
+        import shutil
+        ffmpeg = shutil.which("ffmpeg")
+        if not ffmpeg:
+            logger.warning("[缩略图] FFmpeg 未找到，跳过视频缩略图")
+            return
+        try:
+            thumb_path.parent.mkdir(parents=True, exist_ok=True)
+            result = subprocess.run(
+                [ffmpeg, "-ss", "1", "-i", str(original),
+                 "-vframes", "1", "-vf", f"scale={THUMB_MAX_WIDTH}:-1",
+                 "-q:v", "3", "-y", str(thumb_path)],
+                capture_output=True, text=True, timeout=60)
+            if thumb_path.exists():
+                logger.info(f"[缩略图] 生成: {thumb_path.name}")
+            else:
+                logger.warning(f"[缩略图] 视频转换失败: {result.stderr[:120]}")
+        except Exception as e:
+            logger.warning(f"[缩略图] 生成失败: {original.name} - {e}")
 
 
 def download_with_ytdlp(url: str, platform: str = "未知") -> tuple[Path, str]:
@@ -548,6 +572,7 @@ def download_with_ytdlp(url: str, platform: str = "未知") -> tuple[Path, str]:
     if fpath.exists():
         size_mb = fpath.stat().st_size / 1024 / 1024
         rel = _relative_path(fpath)
+        _generate_thumb(fpath)
         logger.info(f"[yt-dlp 下载] 完成: {rel} ({size_mb:.2f} MB)")
         return fpath, rel
 
@@ -557,6 +582,7 @@ def download_with_ytdlp(url: str, platform: str = "未知") -> tuple[Path, str]:
         actual = candidates[0]
         size_mb = actual.stat().st_size / 1024 / 1024
         rel = _relative_path(actual)
+        _generate_thumb(actual)
         logger.info(f"[yt-dlp 下载] 完成: {rel} ({size_mb:.2f} MB)")
         return actual, rel
 
@@ -1011,7 +1037,8 @@ async def list_files(page: int = 1, page_size: int = 20, platform: str = "", dat
                 "size": f.stat().st_size,
                 "url": f"{PREFIX}/download/{rel}",
             }
-            if f.suffix.lower() in (".jpg", ".jpeg", ".png", ".webp", ".gif"):
+            if f.suffix.lower() in (".jpg", ".jpeg", ".png", ".webp", ".gif",
+                                   ".mp4", ".mkv", ".webm", ".flv", ".mov", ".avi"):
                 entry["thumb"] = f"{PREFIX}/thumb/{rel}"
             files.append(entry)
     total = len(files)
