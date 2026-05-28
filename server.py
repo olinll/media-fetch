@@ -9,6 +9,7 @@ import logging
 import os
 import re
 import sys
+import threading
 import time
 from collections import deque
 from datetime import datetime
@@ -30,6 +31,7 @@ FFMPEG_PATH = os.getenv("MF_FFMPEG_PATH", "")
 DOWNLOADS_DIR = os.getenv("MF_DOWNLOADS_DIR", "")
 PROXY = os.getenv("MF_PROXY", "")
 LOG_LEVEL = os.getenv("MF_LOG_LEVEL", "INFO").upper()
+CLEANUP_CRON = os.getenv("MF_CLEANUP_CRON", "").strip()
 
 # 下载目录（支持相对路径，相对于项目目录）
 if DOWNLOADS_DIR:
@@ -42,6 +44,48 @@ DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
 THUMB_DIR = DOWNLOAD_DIR / "_thumbs"
 THUMB_MAX_WIDTH = 400
 THUMB_QUALITY = 80
+
+# --- 定时清理 ---
+
+def _cleanup_files():
+    """删除下载目录中所有文件（含缩略图）"""
+    count = 0
+    size = 0
+    for f in DOWNLOAD_DIR.rglob("*"):
+        if f.is_file():
+            size += f.stat().st_size
+            f.unlink()
+            count += 1
+    # 清理空目录（从深到浅）
+    for d in sorted(DOWNLOAD_DIR.rglob("*"), key=lambda p: str(p), reverse=True):
+        if d.is_dir() and d != THUMB_DIR and not any(d.iterdir()):
+            d.rmdir()
+    logger.info(f"[清理] 已删除 {count} 个文件，释放 {size / 1024 / 1024:.1f} MB")
+
+
+def _cleanup_loop():
+    """后台线程：按 cron 表达式定时清理"""
+    if not CLEANUP_CRON:
+        return
+    from croniter import croniter
+    cron = croniter(CLEANUP_CRON, datetime.now())
+    logger.info(f"[清理] 已启用定时清理，cron: {CLEANUP_CRON}")
+    while True:
+        next_run = cron.get_next(datetime)
+        wait = max(0, (next_run - datetime.now()).total_seconds())
+        if wait > 0:
+            time.sleep(wait)
+        logger.info("[清理] 开始执行定时清理...")
+        try:
+            _cleanup_files()
+        except Exception as e:
+            logger.error(f"[清理] 失败: {e}")
+
+
+def start_cleanup_thread():
+    if CLEANUP_CRON:
+        t = threading.Thread(target=_cleanup_loop, daemon=True)
+        t.start()
 
 CACHE_FILE = BASE_DIR / "cache.json"
 
@@ -1017,7 +1061,10 @@ if __name__ == "__main__":
     print(f"    下载目录   {DOWNLOAD_DIR}")
     print(f"    FFmpeg     {ffmpeg_path or '未找到'}")
     print(f"    代理       {PROXY or '未配置'}")
+    print(f"    定时清理   {CLEANUP_CRON or '未启用'}")
     print()
+
+    start_cleanup_thread()
 
     try:
         uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="info")

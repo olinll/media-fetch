@@ -44,6 +44,24 @@ cp .env.example .env
 | `MF_DOWNLOADS_DIR` | `./downloads` | 下载文件存储目录，支持绝对路径和相对路径 |
 | `MF_PROXY` | 空 | 代理地址，TikTok/YouTube/Twitter 使用，如 `http://127.0.0.1:7890` |
 | `MF_LOG_LEVEL` | `INFO` | 日志级别: DEBUG, INFO, WARNING, ERROR |
+| `MF_CLEANUP_CRON` | 空 (不启用) | 定时清理 cron 表达式，置空不清理，见下方说明 |
+
+### 定时清理
+
+`MF_CLEANUP_CRON` 支持标准 5 位 cron 表达式（分 时 日 月 周），到达时间后自动删除下载目录中所有文件及缩略图。
+
+**设为空字符串（默认）则不启用清理。**
+
+常用 cron 示例：
+
+| 表达式 | 说明 |
+|--------|------|
+| `0 2 * * *` | 每天凌晨 2:00 |
+| `0 */6 * * *` | 每 6 小时（0:00, 6:00, 12:00, 18:00） |
+| `0 * * * *` | 每小时整点 |
+| `*/30 * * * *` | 每 30 分钟 |
+| `0 3 * * 0` | 每周日凌晨 3:00 |
+| `0 0 1 * *` | 每月 1 号 0:00 |
 
 ### 启动
 
@@ -52,6 +70,23 @@ python server.py
 ```
 
 服务启动后访问 http://localhost:9000 即可使用 Web UI。
+
+## Docker 部署
+
+```bash
+# 构建镜像
+docker build -t media-fetch .
+
+# 运行容器
+docker run -d \
+  --name media-fetch \
+  -p 9000:9000 \
+  -v /host/data:/data \
+  -e MF_CLEANUP_CRON="0 2 * * *" \
+  media-fetch
+```
+
+挂载 `/data` 目录可持久化下载文件，环境变量通过 `-e` 传入。
 
 ## API
 
@@ -85,6 +120,7 @@ python server.py
 media-fetch/
 ├── server.py           # 后端服务
 ├── requirements.txt    # Python 依赖
+├── Dockerfile          # Docker 构建
 ├── .env.example        # 配置模板
 ├── static/
 │   ├── index.html      # Web UI 页面结构
