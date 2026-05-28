@@ -271,6 +271,7 @@ async function loadFiles(reset = false) {
     const data = await resp.json();
     const grid = $('#files-grid');
     const empty = $('#files-empty');
+    $('#files-count').textContent = `(${data.total} 个文件)`;
     if (data.platforms && data.platforms.length && $('#filter-platform').options.length <= 1) {
       data.platforms.forEach(p => $('#filter-platform').add(new Option(p, p)));
     }

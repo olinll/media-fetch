@@ -24,10 +24,13 @@
 </header>
 
 <!-- 公告 -->
-<div id="announcement" class="bg-blue-50 border-b border-blue-100 px-4 sm:px-6 py-2.5 flex items-center justify-between text-sm">
-  <span class="text-blue-700">限时开放体验，稍后将迁移至 <a href="https://blog.olinl.com/tools" class="underline font-medium hover:text-blue-900">blog.olinl.com/tools</a></span>
-  <button onclick="this.parentElement.remove()" class="text-blue-400 hover:text-blue-600 ml-4 flex-shrink-0" title="关闭">
-    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg>
+<div id="announcement" class="mx-4 sm:mx-6 mt-3 mb-0 rounded-lg bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-100 px-4 py-2.5 flex items-center justify-between text-sm">
+  <div class="flex items-center gap-2 text-gray-600">
+    <svg class="w-4 h-4 text-blue-500 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+    <span>限时开放体验，稍后迁移至 <a href="https://blog.olinl.com/tools" class="text-blue-600 font-medium hover:underline">blog.olinl.com/tools</a></span>
+  </div>
+  <button onclick="this.parentElement.remove()" class="text-gray-400 hover:text-gray-600 ml-3 flex-shrink-0 p-0.5 rounded hover:bg-white/60 transition" title="关闭">
+    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg>
   </button>
 </div>
 
@@ -163,7 +166,7 @@
 <!-- ========== Tab: 文件库 ========== -->
 <section id="tab-files" class="tab-content hidden">
   <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
-    <h2 class="text-lg font-medium">已下载文件</h2>
+    <h2 class="text-lg font-medium">已下载文件 <span id="files-count" class="text-sm font-normal text-gray-400"></span></h2>
     <div class="flex gap-2">
       <select id="filter-platform" class="bg-white border border-gray-300 rounded px-3 py-1.5 text-sm shadow-sm">
         <option value="">全部平台</option>

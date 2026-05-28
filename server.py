@@ -114,10 +114,13 @@ def _get_client_ip(request: Request) -> str:
 
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
+    path = request.url.path
+    if path.startswith("/thumb/"):
+        return await call_next(request)
     client_ip = _get_client_ip(request)
-    logger.info(f">>> {request.method} {request.url.path}  query={dict(request.query_params)}  client={client_ip}")
+    logger.info(f">>> {request.method} {path}  query={dict(request.query_params)}  client={client_ip}")
     resp = await call_next(request)
-    logger.info(f"<<< {request.method} {request.url.path}  status={resp.status_code}")
+    logger.info(f"<<< {request.method} {path}  status={resp.status_code}")
     return resp
 
 
