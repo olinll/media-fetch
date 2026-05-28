@@ -88,7 +88,7 @@ def start_cleanup_thread():
         t = threading.Thread(target=_cleanup_loop, daemon=True)
         t.start()
 
-CACHE_FILE = BASE_DIR / "cache.json"
+CACHE_FILE = DOWNLOAD_DIR / "_cache.json"
 
 # ffmpeg 路径发现（支持相对路径，相对于项目目录）
 _FFMPEG_CANDIDATES = []
@@ -1065,7 +1065,7 @@ async def list_files(page: int = 1, page_size: int = 20, platform: str = "", dat
     for f in sorted(DOWNLOAD_DIR.rglob("*"), key=lambda p: p.stat().st_mtime, reverse=True):
         if f.is_file():
             rel = _relative_path(f)
-            if rel.startswith("_thumbs/") or rel.startswith("_meta"):
+            if rel.startswith("_"):
                 continue
             parts = rel.split("/")
             file_date = parts[0] if len(parts) > 0 else ""
