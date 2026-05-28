@@ -23,6 +23,14 @@
   <span id="status-dot" class="text-xs text-gray-400"></span>
 </header>
 
+<!-- 公告 -->
+<div id="announcement" class="bg-blue-50 border-b border-blue-100 px-4 sm:px-6 py-2.5 flex items-center justify-between text-sm">
+  <span class="text-blue-700">限时开放体验，稍后将迁移至 <a href="https://blog.olinl.com/tools" class="underline font-medium hover:text-blue-900">blog.olinl.com/tools</a></span>
+  <button onclick="this.parentElement.remove()" class="text-blue-400 hover:text-blue-600 ml-4 flex-shrink-0" title="关闭">
+    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg>
+  </button>
+</div>
+
 <!-- Tabs -->
 <nav class="bg-white border-b border-gray-200 px-4 sm:px-6 flex gap-4 sm:gap-6 text-sm shadow-sm overflow-x-auto no-scrollbar tab-scroll">
   <button class="tab-btn tab-active py-3" data-tab="parse">解析</button>

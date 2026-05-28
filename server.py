@@ -39,6 +39,10 @@ else:
     DOWNLOAD_DIR = BASE_DIR / "downloads"
 DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
+THUMB_DIR = DOWNLOAD_DIR / "_thumbs"
+THUMB_MAX_WIDTH = 400
+THUMB_QUALITY = 80
+
 CACHE_FILE = BASE_DIR / "cache.json"
 
 # ffmpeg 路径发现（支持相对路径，相对于项目目录）
@@ -66,6 +70,7 @@ for _d in _FFMPEG_CANDIDATES:
 
 import httpx
 import yt_dlp
+from PIL import Image
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -436,8 +441,31 @@ async def download_file(url: str, suffix: str, client: httpx.AsyncClient, platfo
     fpath.write_bytes(resp.content)
     size_mb = len(resp.content) / 1024 / 1024
     rel = _relative_path(fpath)
+    _generate_thumb(fpath)
     logger.info(f"[下载] 完成: {rel} ({size_mb:.2f} MB)")
     return fpath, rel
+
+
+def _generate_thumb(original: Path):
+    """为图片生成缩略图，存储在 THUMB_DIR 下"""
+    if original.suffix.lower() not in (".jpg", ".jpeg", ".png", ".webp", ".gif"):
+        return
+    thumb_path = THUMB_DIR / _relative_path(original)
+    if thumb_path.exists():
+        return
+    try:
+        thumb_path.parent.mkdir(parents=True, exist_ok=True)
+        img = Image.open(original)
+        if img.width > THUMB_MAX_WIDTH:
+            ratio = THUMB_MAX_WIDTH / img.width
+            new_size = (THUMB_MAX_WIDTH, int(img.height * ratio))
+            img = img.resize(new_size, Image.LANCZOS)
+        if img.mode in ("RGBA", "P"):
+            img = img.convert("RGB")
+        img.save(thumb_path, "JPEG", quality=THUMB_QUALITY, optimize=True)
+        logger.info(f"[缩略图] 生成: {thumb_path.name}")
+    except Exception as e:
+        logger.warning(f"[缩略图] 生成失败: {original.name} - {e}")
 
 
 def download_with_ytdlp(url: str, platform: str = "未知") -> tuple[Path, str]:
@@ -763,6 +791,7 @@ async def _do_parse(raw: str, client_ip: str = "unknown") -> dict:
                             "filename": fpath.name,
                             "relative_path": rel,
                             "url": f"{PREFIX}/download/{rel}",
+                            "thumb": f"{PREFIX}/thumb/{rel}",
                         })
                     except Exception as e:
                         logger.error(f"[下载] 图片 {i} 失败: {e}")
@@ -832,6 +861,17 @@ async def _do_parse(raw: str, client_ip: str = "unknown") -> dict:
     return result
 
 
+# --- 缩略图 ---
+
+@app.get("/thumb/{file_path:path}")
+async def thumb_file_endpoint(file_path: str):
+    thumb_path = THUMB_DIR / file_path
+    if thumb_path.exists():
+        return FileResponse(thumb_path, media_type="image/jpeg", filename=thumb_path.name)
+    # 无缩略图时重定向到原图
+    return RedirectResponse(url=f"{PREFIX}/download/{file_path}", status_code=302)
+
+
 # --- 文件下载 ---
 
 @app.get("/download/{file_path:path}")
@@ -888,12 +928,15 @@ async def list_files(page: int = 1, page_size: int = 20, platform: str = "", dat
                 continue
             if date and file_date != date:
                 continue
-            files.append({
+            entry = {
                 "filename": f.name,
                 "relative_path": rel,
                 "size": f.stat().st_size,
                 "url": f"{PREFIX}/download/{rel}",
-            })
+            }
+            if f.suffix.lower() in (".jpg", ".jpeg", ".png", ".webp", ".gif"):
+                entry["thumb"] = f"{PREFIX}/thumb/{rel}"
+            files.append(entry)
     total = len(files)
     start = (page - 1) * page_size
     end = start + page_size

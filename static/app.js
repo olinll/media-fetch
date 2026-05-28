@@ -112,7 +112,7 @@ function renderResult(data) {
     grid.className = 'grid gap-1 p-1' + (images.length === 1 ? '' : images.length <= 4 ? ' grid-cols-2' : ' grid-cols-3');
     images.forEach(f => {
       const idx = data.files.indexOf(f);
-      grid.innerHTML += `<img src="${f.url}" class="w-full aspect-square object-cover rounded cursor-pointer hover:opacity-80 transition" onclick='openLightbox(${JSON.stringify(allItems)}, ${idx})'>`;
+      grid.innerHTML += `<img src="${f.thumb || f.url}" class="w-full aspect-square object-cover rounded cursor-pointer hover:opacity-80 transition" onclick='openLightbox(${JSON.stringify(allItems)}, ${idx})'>`;
     });
     mediaEl.appendChild(grid);
     if (images.length > 1) {
@@ -170,7 +170,7 @@ function renderBatchResult(data) {
       if (images.length) {
         mediaHtml += `<div class="grid gap-1 p-1 ${images.length === 1 ? '' : images.length <= 4 ? 'grid-cols-2' : 'grid-cols-3'}">`;
         mediaHtml += images.map(f => `
-          <img src="${f.url}" class="w-full aspect-square object-cover rounded cursor-pointer hover:opacity-80 transition" onclick="openLightbox(${JSON.stringify(files.map(x=>({url:x.url,type:x.type}))).replace(/"/g,'&quot;')}, ${files.indexOf(f)})">
+          <img src="${f.thumb || f.url}" class="w-full aspect-square object-cover rounded cursor-pointer hover:opacity-80 transition" onclick="openLightbox(${JSON.stringify(files.map(x=>({url:x.url,type:x.type}))).replace(/"/g,'&quot;')}, ${files.indexOf(f)})">
         `).join('');
         mediaHtml += '</div>';
       }
@@ -238,7 +238,7 @@ function buildFileCard(f) {
   if (isVideo) {
     preview = `<video class="w-full object-cover bg-black" preload="metadata" muted><source src="${f.url}"></video>`;
   } else if (isImage) {
-    preview = `<img src="${f.url}" class="w-full object-cover" loading="lazy">`;
+    preview = `<img src="${f.thumb || f.url}" class="w-full object-cover" loading="lazy">`;
   } else {
     preview = `<div class="w-full aspect-video bg-gray-200 flex items-center justify-center text-gray-400 text-xs">${ext.toUpperCase()}</div>`;
   }
