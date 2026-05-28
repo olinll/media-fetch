@@ -948,6 +948,8 @@ async def list_files(page: int = 1, page_size: int = 20, platform: str = "", dat
     for f in sorted(DOWNLOAD_DIR.rglob("*"), key=lambda p: p.stat().st_mtime, reverse=True):
         if f.is_file():
             rel = _relative_path(f)
+            if rel.startswith("_thumbs/"):
+                continue
             parts = rel.split("/")
             file_date = parts[0] if len(parts) > 0 else ""
             file_platform = parts[1] if len(parts) > 1 else ""
