@@ -13,13 +13,11 @@ var filesObserver = new IntersectionObserver(entries => {
   if (entries[0].isIntersecting && filesHasMore && !filesLoading) loadFiles();
 }, { rootMargin: '200px' });
 
-const TAB_ROUTES = { '/': 'parse', '/files': 'files', '/history': 'history', '/logs': 'logs', '/docs': 'docs' };
-const TAB_PATHS = { parse: '/', files: '/files', history: '/history', logs: '/logs', docs: '/docs' };
+const TAB_NAMES = ['parse', 'files', 'history', 'logs', 'docs'];
 
-function getTabFromPath() {
-  let path = location.pathname;
-  if (BASE && path.startsWith(BASE)) path = path.slice(BASE.length) || '/';
-  return TAB_ROUTES[path] || 'parse';
+function getTabFromHash() {
+  const h = location.hash.replace('#', '');
+  return TAB_NAMES.includes(h) ? h : 'parse';
 }
 
 function switchTab(tabName, push = true) {
@@ -29,8 +27,7 @@ function switchTab(tabName, push = true) {
   $$('.tab-content').forEach(s => s.classList.add('hidden'));
   $(`#tab-${tabName}`).classList.remove('hidden');
   if (push) {
-    const fullPath = BASE + (TAB_PATHS[tabName] || '/');
-    history.pushState(null, '', fullPath);
+    history.pushState(null, '', BASE + '#' + tabName);
   }
   if (tabName === 'files') { if (!$('#files-sentinel')) initFilesObserver(); loadFiles(true); }
   if (tabName === 'history') loadHistory(1);
@@ -44,10 +41,10 @@ $$('.tab-btn').forEach(btn => {
   });
 });
 
-window.addEventListener('popstate', () => switchTab(getTabFromPath(), false));
+window.addEventListener('hashchange', () => switchTab(getTabFromHash(), false));
 
 // 初始化
-switchTab(getTabFromPath(), false);
+switchTab(getTabFromHash(), false);
 
 function clearInput() {
   $('#batch-input').value = '';
@@ -119,11 +116,13 @@ function renderResult(data) {
 
   if (videos.length) {
     videos.forEach(f => {
-      mediaEl.innerHTML += `<video controls playsinline class="w-full max-h-[60vh] bg-black cursor-pointer" preload="metadata" onclick="openLightbox(${JSON.stringify(data.files.map(x=>({url:x.url,type:x.type}))).replace(/"/g,'&quot;')}, ${data.files.indexOf(f)})"><source src="${f.url}" type="video/mp4"></video>`;
+      const lbMeta = {title: data.title||'', author: data.author||'', platform: data.platform||'', original_url: data.original_url||data.resolved_url||''};
+      mediaEl.innerHTML += `<video controls playsinline class="w-full max-h-[60vh] bg-black cursor-pointer" preload="metadata" onclick="openLightbox(${JSON.stringify(data.files.map(x=>({...x,...lbMeta}))).replace(/"/g,'&quot;')}, ${data.files.indexOf(f)})"><source src="${f.url}" type="video/mp4"></video>`;
     });
   }
   if (images.length) {
-    const allItems = data.files.map(f => ({url: f.url, type: f.type}));
+    const lbMeta = {title: data.title||'', author: data.author||'', platform: data.platform||'', original_url: data.original_url||data.resolved_url||''};
+    const allItems = data.files.map(f => ({url: f.url, type: f.type, ...lbMeta}));
     const grid = document.createElement('div');
     grid.className = 'grid gap-1 p-1' + (images.length === 1 ? '' : images.length <= 4 ? ' grid-cols-2' : ' grid-cols-3');
     images.forEach(f => {
@@ -175,6 +174,7 @@ function renderBatchResult(data) {
       const videos = files.filter(f => f.type === 'video');
       const images = files.filter(f => f.type === 'image');
 
+      const lbMeta = {title: result.title||'', author: result.author||'', platform: result.platform||'', original_url: result.original_url||result.resolved_url||''};
       let mediaHtml = '';
       if (videos.length) {
         mediaHtml += videos.map(f => `
@@ -186,7 +186,7 @@ function renderBatchResult(data) {
       if (images.length) {
         mediaHtml += `<div class="grid gap-1 p-1 ${images.length === 1 ? '' : images.length <= 4 ? 'grid-cols-2' : 'grid-cols-3'}">`;
         mediaHtml += images.map(f => `
-          <img src="${f.thumb || f.url}" class="w-full aspect-square object-cover rounded cursor-pointer hover:opacity-80 transition" onclick="openLightbox(${JSON.stringify(files.map(x=>({url:x.url,type:x.type}))).replace(/"/g,'&quot;')}, ${files.indexOf(f)})">
+          <img src="${f.thumb || f.url}" class="w-full aspect-square object-cover rounded cursor-pointer hover:opacity-80 transition" onclick="openLightbox(${JSON.stringify(files.map(x=>({url:x.url,type:x.type,...lbMeta}))).replace(/"/g,'&quot;')}, ${files.indexOf(f)})">
         `).join('');
         mediaHtml += '</div>';
       }
@@ -263,14 +263,22 @@ function buildFileCard(f) {
   } else {
     preview = `<div class="w-full aspect-video bg-gray-200 flex items-center justify-center text-gray-400 text-xs">${ext.toUpperCase()}</div>`;
   }
-  const clickable = (isVideo || isImage) ? `onclick="openLightbox([{url:'${f.url}',type:'${isVideo?'video':'image'}'}], 0)"` : '';
+  const t = (f.title || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+  const a = (f.author || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+  const p = (f.platform || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+  const o = (f.original_url || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+  const clickable = (isVideo || isImage) ? `onclick="openLightbox([{url:'${f.url}',type:'${isVideo?'video':'image'}',title:'${t}',author:'${a}',platform:'${p}',original_url:'${o}'}], 0)"` : '';
   return `
     <div class="wf-item bg-white rounded-lg border border-gray-200 overflow-hidden hover:border-gray-300 transition shadow-sm">
       <div class="relative cursor-pointer" ${clickable}>${preview}
-        <span class="absolute top-1 left-1 bg-black/50 text-white text-xs px-1.5 py-0.5 rounded">${platform}</span>
+        <span class="absolute bg-black/50 text-white text-xs px-1.5 py-0.5 rounded" style="top:4px;left:4px">${platform}</span>
+        <span class="absolute text-white text-xs px-1.5 py-0.5 rounded" style="top:4px;right:4px;background:rgba(0,0,0,.5);border:1px solid rgba(255,255,255,.2)">${isVideo ? '视频' : isImage ? '图文' : ext.toUpperCase()}</span>
       </div>
       <div class="p-2.5">
-        <div class="text-xs text-gray-500 truncate mb-1">${f.filename}</div>
+        ${f.title ? `<div class="text-xs text-gray-700 font-medium line-clamp-2 mb-1">${escHtml(f.title)}</div>` : ''}
+        ${f.author ? `<div class="text-xs text-gray-400 truncate mb-1">@${escHtml(f.author)}</div>` : ''}
+        ${f.original_url ? `<a href="${escHtml(f.original_url)}" target="_blank" class="text-xs text-blue-500 truncate block mb-1 hover:underline" onclick="event.stopPropagation()">原链接</a>` : ''}
+        <div class="text-xs text-gray-400 truncate mb-1">${f.filename}</div>
         <div class="flex items-center justify-between">
           <span class="text-xs text-gray-400">${fmtSize(f.size)} · ${date}</span>
           <a href="${f.url}" download class="text-blue-600 hover:text-blue-500 text-xs flex-shrink-0" onclick="event.stopPropagation()">下载</a>
@@ -398,10 +406,19 @@ function closeLightbox() {
 
 function renderLightbox() {
   const item = lbItems[lbIndex];
-  const el = item.type === 'video'
+  const media = item.type === 'video'
     ? `<video controls autoplay playsinline class="rounded" style="max-width:95vw;max-height:90vh"><source src="${item.url}" type="video/mp4"></video>`
-    : `<img src="${item.url}" class="rounded">`;
-  $('#lb-content').innerHTML = el;
+    : `<img src="${item.url}" class="rounded" style="max-width:95vw;max-height:90vh">`;
+  const info = `
+    <div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent px-4 py-3 pointer-events-none">
+      <div class="flex items-center justify-center gap-2 text-xs text-white flex-nowrap overflow-hidden">
+        ${item.platform ? `<span class="bg-blue-500/80 border border-blue-400/50 px-2 py-0.5 rounded-full font-medium flex-shrink-0">${escHtml(item.platform)}</span>` : ''}
+        ${item.title ? `<span class="truncate flex-shrink min-w-0">${escHtml(item.title)}</span>` : ''}
+        ${item.author ? `<span class="text-white/70 flex-shrink-0">@${escHtml(item.author)}</span>` : ''}
+        ${item.original_url ? `<a href="${escHtml(item.original_url)}" target="_blank" class="text-white/50 hover:text-white/80 flex-shrink-0 pointer-events-auto relative z-10 transition underline" onclick="event.stopPropagation()">原链接</a>` : ''}
+      </div>
+    </div>`;
+  $('#lb-content').innerHTML = `<div class="relative inline-block">${media}${info}</div>`;
   $('#lb-counter').textContent = lbItems.length > 1 ? `${lbIndex + 1} / ${lbItems.length}` : '';
 }
 
