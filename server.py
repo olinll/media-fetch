@@ -568,6 +568,7 @@ def _get_index_html() -> str:
                 html = html.replace(f'href="{path}"', f'href="{PREFIX}{path}"')
         # 缓存破坏，防止 config.js 被浏览器缓存旧值
         html = html.replace('src="config.js"', f'src="config.js?v={_startup_ts}"')
+        html = html.replace('src="app.js"', f'src="app.js?v={_startup_ts}"')
         _INDEX_HTML_CACHE = html
     return _INDEX_HTML_CACHE
 
