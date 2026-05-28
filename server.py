@@ -462,6 +462,68 @@ async def parse_douyin_slides_api(vid: str, client: httpx.AsyncClient) -> dict:
     }
 
 
+async def parse_douyin_iteminfo_api(vid: str, client: httpx.AsyncClient) -> dict:
+    """通过 iteminfo API 解析抖音视频/图文"""
+    logger.info(f"[抖音] iteminfo API 解析, ID: {vid}")
+    url = "https://www.iesdouyin.com/web/api/v2/aweme/iteminfo/"
+    params = {"item_ids": vid}
+    resp = await client.get(url, params=params)
+    resp.raise_for_status()
+    data = resp.json()
+
+    items = data.get("item_list", [])
+    if not items:
+        raise ValueError("iteminfo API 无数据")
+
+    item = items[0]
+    author = item.get("author", {})
+    desc = item.get("desc", "")
+    create_time = item.get("create_time", 0)
+
+    images = item.get("images")
+    if images:
+        image_urls = []
+        for img in images:
+            urls = img.get("url_list", [])
+            if urls:
+                image_urls.append(choice(urls))
+        return {
+            "type": "slides",
+            "title": desc,
+            "author": author.get("nickname", ""),
+            "timestamp": create_time,
+            "image_urls": image_urls,
+            "video_url": None,
+        }
+
+    video = item.get("video")
+    if video:
+        play_addr = video.get("play_addr", {})
+        url_list = play_addr.get("url_list", [])
+        video_url = None
+        for u in url_list:
+            video_url = u.replace("playwm", "play")
+            break
+        cover_url = None
+        cover = video.get("cover", {})
+        cover_list = cover.get("url_list", [])
+        if cover_list:
+            cover_url = choice(cover_list)
+        duration = video.get("duration", 0)
+        return {
+            "type": "video",
+            "title": desc,
+            "author": author.get("nickname", ""),
+            "timestamp": create_time,
+            "video_url": video_url,
+            "cover_url": cover_url,
+            "duration": duration,
+            "image_urls": [],
+        }
+
+    raise ValueError("无法识别内容类型")
+
+
 # ======================================================================
 # Generic Parser (yt-dlp)
 # ======================================================================
@@ -907,25 +969,24 @@ async def _do_parse(raw: str, client_ip: str = "unknown") -> dict:
             if vid_info:
                 vid, vtype = vid_info
                 try:
-                    if vtype == "slides":
+                    urls_to_try = [
+                        f"https://m.douyin.com/share/{vtype}/{vid}",
+                        f"https://www.douyin.com/{vtype}/{vid}",
+                    ]
+                    for u in urls_to_try:
                         try:
-                            page_url = f"https://www.douyin.com/video/{vid}"
-                            info = await parse_douyin_video(page_url, client)
+                            info = await parse_douyin_video(u, client)
+                            break
                         except Exception as e:
-                            logger.warning(f"[抖音] 页面解析失败: {e}, 尝试 API")
+                            logger.warning(f"[抖音] {u} 解析失败: {e}")
+                            continue
+                    if not info:
+                        logger.warning("[抖音] 页面解析全部失败, 尝试 API")
+                        try:
                             info = await parse_douyin_slides_api(vid, client)
-                    else:
-                        urls_to_try = [
-                            f"https://m.douyin.com/share/{vtype}/{vid}",
-                            f"https://www.douyin.com/{vtype}/{vid}",
-                        ]
-                        for u in urls_to_try:
-                            try:
-                                info = await parse_douyin_video(u, client)
-                                break
-                            except Exception as e:
-                                logger.warning(f"[抖音] {u} 解析失败: {e}")
-                                continue
+                        except Exception as e2:
+                            logger.warning(f"[抖音] slides API 失败: {e2}, 尝试 iteminfo API")
+                            info = await parse_douyin_iteminfo_api(vid, client)
                 except Exception as e:
                     logger.error(f"[抖音] 所有方式失败: {e}")
                     try:
