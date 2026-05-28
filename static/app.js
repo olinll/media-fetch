@@ -13,25 +13,41 @@ var filesObserver = new IntersectionObserver(entries => {
   if (entries[0].isIntersecting && filesHasMore && !filesLoading) loadFiles();
 }, { rootMargin: '200px' });
 
-function switchTab(tabName) {
+const TAB_ROUTES = { '/': 'parse', '/files': 'files', '/history': 'history', '/logs': 'logs', '/docs': 'docs' };
+const TAB_PATHS = { parse: '/', files: '/files', history: '/history', logs: '/logs', docs: '/docs' };
+
+function getTabFromPath() {
+  let path = location.pathname;
+  if (BASE && path.startsWith(BASE)) path = path.slice(BASE.length) || '/';
+  return TAB_ROUTES[path] || 'parse';
+}
+
+function switchTab(tabName, push = true) {
   $$('.tab-btn').forEach(b => { b.classList.remove('tab-active'); b.classList.add('text-gray-500'); });
   const target = $(`.tab-btn[data-tab="${tabName}"]`);
   if (target) { target.classList.add('tab-active'); target.classList.remove('text-gray-500'); }
   $$('.tab-content').forEach(s => s.classList.add('hidden'));
   $(`#tab-${tabName}`).classList.remove('hidden');
-  localStorage.setItem('activeTab', tabName);
+  if (push) {
+    const fullPath = BASE + (TAB_PATHS[tabName] || '/');
+    history.pushState(null, '', fullPath);
+  }
   if (tabName === 'files') { if (!$('#files-sentinel')) initFilesObserver(); loadFiles(true); }
   if (tabName === 'history') loadHistory(1);
   if (tabName === 'logs') loadLogs();
 }
 
 $$('.tab-btn').forEach(btn => {
-  btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+  btn.addEventListener('click', e => {
+    e.preventDefault();
+    switchTab(btn.dataset.tab);
+  });
 });
 
-// 恢复上次的 tab
-const savedTab = localStorage.getItem('activeTab') || 'parse';
-switchTab(savedTab);
+window.addEventListener('popstate', () => switchTab(getTabFromPath(), false));
+
+// 初始化
+switchTab(getTabFromPath(), false);
 
 function clearInput() {
   $('#batch-input').value = '';
@@ -267,7 +283,7 @@ async function loadFiles(reset = false) {
   try {
     const fp = $('#filter-platform').value;
     const fd = $('#filter-date').value;
-    const resp = await fetch(`${BASE}/files?page=${filesPage}&page_size=20&platform=${encodeURIComponent(fp)}&date=${encodeURIComponent(fd)}`);
+    const resp = await fetch(`${BASE}/i/files?page=${filesPage}&page_size=20&platform=${encodeURIComponent(fp)}&date=${encodeURIComponent(fd)}`);
     const data = await resp.json();
     const grid = $('#files-grid');
     const empty = $('#files-empty');
@@ -314,7 +330,7 @@ function buildHistoryCard(e) {
 async function loadHistory(page = 1) {
   historyPage = page;
   try {
-    const resp = await fetch(`${BASE}/cache?page=${page}&page_size=${historyPageSize}`);
+    const resp = await fetch(`${BASE}/i/cache?page=${page}&page_size=${historyPageSize}`);
     const data = await resp.json();
     const entries = data.entries || [];
     const list = $('#history-list');
@@ -342,7 +358,7 @@ async function loadHistory(page = 1) {
 
 async function loadLogs() {
   try {
-    const resp = await fetch(`${BASE}/logs?limit=200`);
+    const resp = await fetch(`${BASE}/i/logs?limit=200`);
     const data = await resp.json();
     const container = $('#logs-container');
     container.innerHTML = (data.logs || []).map(l =>

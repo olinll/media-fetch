@@ -72,7 +72,7 @@ import httpx
 import yt_dlp
 from PIL import Image
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 # ======================================================================
@@ -552,6 +552,16 @@ def _write_config_js():
 
 _write_config_js()
 
+_INDEX_HTML_CACHE = ""
+
+def _get_index_html() -> str:
+    global _INDEX_HTML_CACHE
+    if not _INDEX_HTML_CACHE:
+        raw = (_STATIC_DIR / "index.html").read_text(encoding="utf-8")
+        base_tag = f'<base href="{PREFIX}/static/">'
+        _INDEX_HTML_CACHE = raw.replace("<head>", f"<head>\n{base_tag}", 1)
+    return _INDEX_HTML_CACHE
+
 
 # ======================================================================
 # API Routes
@@ -559,19 +569,26 @@ _write_config_js()
 
 @app.get("/")
 async def index():
-    return RedirectResponse(url=f"{PREFIX}/static/index.html")
+    return HTMLResponse(_get_index_html())
+
+@app.get("/files")
+@app.get("/history")
+@app.get("/logs")
+@app.get("/docs")
+async def spa_routes():
+    return HTMLResponse(_get_index_html())
 
 
 # --- 日志、统计、缓存 ---
 
-@app.get("/logs")
+@app.get("/i/logs")
 async def get_logs(limit: int = Query(100, ge=1, le=500)):
     """返回最近 N 条日志"""
     items = list(LOG_BUFFER)[-limit:]
     return {"logs": items, "total": len(LOG_BUFFER)}
 
 
-@app.get("/stats")
+@app.get("/i/stats")
 async def get_stats():
     """统计信息"""
     total_files = 0
@@ -602,7 +619,7 @@ async def get_stats():
     }
 
 
-@app.get("/cache")
+@app.get("/i/cache")
 async def get_cache(page: int = 1, page_size: int = 20):
     """返回缓存条目（分页）"""
     cache = _load_cache()
@@ -912,7 +929,7 @@ async def api_download_file_endpoint(file_path: str):
 
 # --- 文件列表 ---
 
-@app.get("/files")
+@app.get("/i/files")
 async def list_files(page: int = 1, page_size: int = 20, platform: str = "", date: str = ""):
     files = []
     all_platforms = set()
@@ -949,7 +966,7 @@ async def list_files(page: int = 1, page_size: int = 20, platform: str = "", dat
     }
 
 
-@app.delete("/files")
+@app.delete("/i/files")
 async def clear_files():
     """仅列出文件，不删除（文件永久保留）"""
     count = sum(1 for f in DOWNLOAD_DIR.rglob("*") if f.is_file())
