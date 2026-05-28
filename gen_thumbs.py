@@ -28,6 +28,7 @@ BASE_DIR = Path(__file__).parent
 DOWNLOAD_DIR = BASE_DIR / os.getenv("MF_DOWNLOADS_DIR", "downloads")
 THUMB_DIR = DOWNLOAD_DIR / "_thumbs"
 META_PATH = DOWNLOAD_DIR / "_meta.json"
+CACHE_PATH = DOWNLOAD_DIR / "_cache.json"
 THUMB_MAX_WIDTH = 400
 THUMB_QUALITY = 80
 
@@ -51,6 +52,35 @@ def _save_meta(rel: str, width: int, height: int, **extra):
     META_PATH.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def _load_cache() -> dict:
+    if CACHE_PATH.exists():
+        try:
+            return json.loads(CACHE_PATH.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    return {}
+
+
+def _build_source_lookup() -> dict:
+    """从 _cache.json 构建 relative_path → 来源信息 的反向索引"""
+    cache = _load_cache()
+    lookup = {}
+    for url, entry in cache.items():
+        source = {
+            "title": entry.get("title", ""),
+            "author": entry.get("author", ""),
+            "platform": entry.get("platform", ""),
+            "type": entry.get("type", ""),
+            "duration": entry.get("duration", 0),
+            "original_url": entry.get("original_url", ""),
+        }
+        for f in entry.get("files", []):
+            rel = f.get("relative_path", "")
+            if rel:
+                lookup[rel] = source
+    return lookup
+
+
 def find_media_files() -> list[Path]:
     """找出所有媒体文件（排除 _thumbs 目录）"""
     files = []
@@ -72,7 +102,7 @@ def thumb_path_for(original: Path) -> Path:
     return p
 
 
-def generate_image_thumb(original: Path, thumb_path: Path, force: bool = False) -> bool:
+def generate_image_thumb(original: Path, thumb_path: Path, force: bool = False, source: dict | None = None) -> bool:
     """生成图片缩略图，返回是否成功"""
     if thumb_path.exists() and not force:
         return False
@@ -81,7 +111,7 @@ def generate_image_thumb(original: Path, thumb_path: Path, force: bool = False) 
         img = Image.open(original)
         w, h = img.size
         rel = str(original.relative_to(DOWNLOAD_DIR)).replace("\\", "/")
-        _save_meta(rel, w, h)
+        _save_meta(rel, w, h, **(source or {}))
         if img.width > THUMB_MAX_WIDTH:
             ratio = THUMB_MAX_WIDTH / img.width
             new_size = (THUMB_MAX_WIDTH, int(img.height * ratio))
@@ -95,7 +125,7 @@ def generate_image_thumb(original: Path, thumb_path: Path, force: bool = False) 
         return False
 
 
-def generate_video_thumb(original: Path, thumb_path: Path, force: bool = False) -> bool:
+def generate_video_thumb(original: Path, thumb_path: Path, force: bool = False, source: dict | None = None) -> bool:
     """生成视频缩略图，返回是否成功"""
     if thumb_path.exists() and not force:
         return False
@@ -122,7 +152,7 @@ def generate_video_thumb(original: Path, thumb_path: Path, force: bool = False) 
                     if r.stdout.strip():
                         w, h = r.stdout.strip().split(",")
                         rel = str(original.relative_to(DOWNLOAD_DIR)).replace("\\", "/")
-                        _save_meta(rel, int(w), int(h))
+                        _save_meta(rel, int(w), int(h), **(source or {}))
                 except Exception:
                     pass
             return True
@@ -144,7 +174,8 @@ def main():
         sys.exit(1)
 
     media_files = find_media_files()
-    print(f"扫描到 {len(media_files)} 个媒体文件")
+    source_lookup = _build_source_lookup()
+    print(f"扫描到 {len(media_files)} 个媒体文件，缓存来源信息 {len(source_lookup)} 条")
 
     to_generate = []
     for f in media_files:
@@ -169,11 +200,13 @@ def main():
     for i, f in enumerate(to_generate, 1):
         tp = thumb_path_for(f)
         kind = "图片" if f.suffix.lower() in IMAGE_EXTS else "视频"
-        print(f"[{i}/{len(to_generate)}] {kind}: {f.relative_to(DOWNLOAD_DIR)}", end=" ... ")
+        rel = str(f.relative_to(DOWNLOAD_DIR)).replace("\\", "/")
+        src = source_lookup.get(rel)
+        print(f"[{i}/{len(to_generate)}] {kind}: {rel}", end=" ... ")
         if f.suffix.lower() in IMAGE_EXTS:
-            ok = generate_image_thumb(f, tp, force=args.force)
+            ok = generate_image_thumb(f, tp, force=args.force, source=src)
         else:
-            ok = generate_video_thumb(f, tp, force=args.force)
+            ok = generate_video_thumb(f, tp, force=args.force, source=src)
         if ok:
             print("OK")
             success += 1
