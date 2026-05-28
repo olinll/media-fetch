@@ -554,13 +554,21 @@ def _write_config_js():
 _write_config_js()
 
 _INDEX_HTML_CACHE = ""
+_startup_ts = int(time.time())
 
 def _get_index_html() -> str:
     global _INDEX_HTML_CACHE
     if not _INDEX_HTML_CACHE:
         raw = (_STATIC_DIR / "index.html").read_text(encoding="utf-8")
-        base_tag = f'<base href="{PREFIX}/static/">'
-        _INDEX_HTML_CACHE = raw.replace("<head>", f"<head>\n{base_tag}", 1)
+        html = raw.replace("<head>", f"<head>\n<base href=\"{PREFIX}/static/\">", 1)
+        # 替换 tab 链接的硬编码路径，使其包含前缀
+        if PREFIX:
+            html = html.replace('href="/"', f'href="{PREFIX}/"')
+            for path in ['/files', '/history', '/logs', '/docs']:
+                html = html.replace(f'href="{path}"', f'href="{PREFIX}{path}"')
+        # 缓存破坏，防止 config.js 被浏览器缓存旧值
+        html = html.replace('src="config.js"', f'src="config.js?v={_startup_ts}"')
+        _INDEX_HTML_CACHE = html
     return _INDEX_HTML_CACHE
 
 
