@@ -117,6 +117,7 @@ import httpx
 import yt_dlp
 from PIL import Image
 from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -146,6 +147,15 @@ logger = logging.getLogger("parser")
 
 app = FastAPI(title="Universal Link Parser", version="1.0.0", root_path=PREFIX)
 
+# CORS 跨域支持
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # 挂载静态文件
 _STATIC_DIR = BASE_DIR / "static"
 _STATIC_DIR.mkdir(exist_ok=True)
@@ -160,7 +170,7 @@ def _get_client_ip(request: Request) -> str:
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
     path = request.url.path
-    if path.startswith("/thumb/"):
+    if path.startswith("/api/thumb/"):
         return await call_next(request)
     client_ip = _get_client_ip(request)
     logger.info(f">>> {request.method} {path}  query={dict(request.query_params)}  client={client_ip}")
@@ -661,14 +671,14 @@ async def spa_routes():
 
 # --- 日志、统计、缓存 ---
 
-@app.get("/i/logs")
+@app.get("/api/logs")
 async def get_logs(limit: int = Query(100, ge=1, le=500)):
     """返回最近 N 条日志"""
     items = list(LOG_BUFFER)[-limit:]
     return {"logs": items, "total": len(LOG_BUFFER)}
 
 
-@app.get("/i/stats")
+@app.get("/api/stats")
 async def get_stats():
     """统计信息"""
     total_files = 0
@@ -699,7 +709,7 @@ async def get_stats():
     }
 
 
-@app.get("/i/cache")
+@app.get("/api/cache")
 async def get_cache(page: int = 1, page_size: int = 20):
     """返回缓存条目（分页）"""
     cache = _load_cache()
@@ -891,8 +901,8 @@ async def _do_parse(raw: str, client_ip: str = "unknown") -> dict:
                             "type": "image",
                             "filename": fpath.name,
                             "relative_path": rel,
-                            "url": f"{PREFIX}/download/{rel}",
-                            "thumb": f"{PREFIX}/thumb/{rel}",
+                            "url": f"{PREFIX}/api/download/{rel}",
+                            "thumb": f"{PREFIX}/api/thumb/{rel}",
                         })
                     except Exception as e:
                         logger.error(f"[下载] 图片 {i} 失败: {e}")
@@ -905,7 +915,7 @@ async def _do_parse(raw: str, client_ip: str = "unknown") -> dict:
                         "type": "video",
                         "filename": fpath.name,
                         "relative_path": rel,
-                        "url": f"{PREFIX}/download/{rel}",
+                        "url": f"{PREFIX}/api/download/{rel}",
                     })
                 else:
                     logger.info("[下载] yt-dlp 下载")
@@ -915,7 +925,7 @@ async def _do_parse(raw: str, client_ip: str = "unknown") -> dict:
                             "type": "video",
                             "filename": fpath.name,
                             "relative_path": rel,
-                            "url": f"{PREFIX}/download/{rel}",
+                            "url": f"{PREFIX}/api/download/{rel}",
                         })
                     except Exception:
                         if info.get("video_url"):
@@ -924,7 +934,7 @@ async def _do_parse(raw: str, client_ip: str = "unknown") -> dict:
                                 "type": "video",
                                 "filename": fpath.name,
                                 "relative_path": rel,
-                                "url": f"{PREFIX}/download/{rel}",
+                                "url": f"{PREFIX}/api/download/{rel}",
                             })
             elif info.get("formats"):
                 logger.info("[下载] yt-dlp 格式列表下载")
@@ -933,7 +943,7 @@ async def _do_parse(raw: str, client_ip: str = "unknown") -> dict:
                     "type": "video",
                     "filename": fpath.name,
                     "relative_path": rel,
-                    "url": f"{PREFIX}/download/{rel}",
+                    "url": f"{PREFIX}/api/download/{rel}",
                 })
         except HTTPException:
             raise
@@ -964,33 +974,16 @@ async def _do_parse(raw: str, client_ip: str = "unknown") -> dict:
 
 # --- 缩略图 ---
 
-@app.get("/thumb/{file_path:path}")
+@app.get("/api/thumb/{file_path:path}")
 async def thumb_file_endpoint(file_path: str):
     thumb_path = THUMB_DIR / file_path
     if thumb_path.exists():
         return FileResponse(thumb_path, media_type="image/jpeg", filename=thumb_path.name)
     # 无缩略图时重定向到原图
-    return RedirectResponse(url=f"{PREFIX}/download/{file_path}", status_code=302)
+    return RedirectResponse(url=f"{PREFIX}/api/download/{file_path}", status_code=302)
 
 
 # --- 文件下载 ---
-
-@app.get("/download/{file_path:path}")
-async def download_file_endpoint(file_path: str):
-    fpath = DOWNLOAD_DIR / file_path
-    if not fpath.exists():
-        raise HTTPException(404, "文件不存在")
-
-    suffix = fpath.suffix.lower()
-    media_types = {
-        ".mp4": "video/mp4", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
-        ".png": "image/png", ".webp": "image/webp", ".gif": "image/gif",
-        ".mp3": "audio/mpeg", ".flac": "audio/flac",
-    }
-    media_type = media_types.get(suffix, "application/octet-stream")
-    logger.info(f"[下载接口] 返回: {file_path} ({media_type})")
-    return FileResponse(fpath, media_type=media_type, filename=fpath.name)
-
 
 @app.get("/api/download/{file_path:path}")
 async def api_download_file_endpoint(file_path: str):
@@ -1010,7 +1003,7 @@ async def api_download_file_endpoint(file_path: str):
 
 # --- 文件列表 ---
 
-@app.get("/i/files")
+@app.get("/api/files")
 async def list_files(page: int = 1, page_size: int = 20, platform: str = "", date: str = ""):
     files = []
     all_platforms = set()
@@ -1035,11 +1028,11 @@ async def list_files(page: int = 1, page_size: int = 20, platform: str = "", dat
                 "filename": f.name,
                 "relative_path": rel,
                 "size": f.stat().st_size,
-                "url": f"{PREFIX}/download/{rel}",
+                "url": f"{PREFIX}/api/download/{rel}",
             }
             if f.suffix.lower() in (".jpg", ".jpeg", ".png", ".webp", ".gif",
                                    ".mp4", ".mkv", ".webm", ".flv", ".mov", ".avi"):
-                entry["thumb"] = f"{PREFIX}/thumb/{rel}"
+                entry["thumb"] = f"{PREFIX}/api/thumb/{rel}"
             files.append(entry)
     total = len(files)
     start = (page - 1) * page_size
@@ -1050,7 +1043,7 @@ async def list_files(page: int = 1, page_size: int = 20, platform: str = "", dat
     }
 
 
-@app.delete("/i/files")
+@app.delete("/api/files")
 async def clear_files():
     """仅列出文件，不删除（文件永久保留）"""
     count = sum(1 for f in DOWNLOAD_DIR.rglob("*") if f.is_file())

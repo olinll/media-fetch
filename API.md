@@ -4,7 +4,7 @@
 
 ---
 
-## 1. 解析链接 `GET /parse`
+## 1. 解析链接 `GET /api/parse`
 
 从分享文案或链接中提取 URL，解析并下载媒体文件。重复链接会直接返回缓存结果。
 
@@ -17,7 +17,7 @@
 **请求示例**
 
 ```
-GET /parse?url=2.05 复制打开抖音，看看【知了知了的图文作品】流萤AI图... https://v.douyin.com/LHUsGRLYwLg/
+GET /api/parse?url=2.05 复制打开抖音，看看【知了知了的图文作品】流萤AI图... https://v.douyin.com/LHUsGRLYwLg/
 ```
 
 **响应示例**
@@ -37,7 +37,7 @@ GET /parse?url=2.05 复制打开抖音，看看【知了知了的图文作品】
       "type": "image",
       "filename": "1748234567_a1b2c3.jpg",
       "relative_path": "20260526/抖音/1748234567_a1b2c3.jpg",
-      "url": "/download/20260526/抖音/1748234567_a1b2c3.jpg"
+      "url": "/api/download/20260526/抖音/1748234567_a1b2c3.jpg"
     }
   ]
 }
@@ -55,7 +55,7 @@ GET /parse?url=2.05 复制打开抖音，看看【知了知了的图文作品】
 
 ---
 
-## 2. 解析链接 `POST /parse`
+## 2. 解析链接 `POST /api/parse`
 
 与 GET 相同，适合 iOS 捷径用 POST JSON 方式调用。
 
@@ -77,21 +77,79 @@ GET /parse?url=2.05 复制打开抖音，看看【知了知了的图文作品】
 
 ---
 
-## 3. 下载文件 `GET /download/{path}`
+## 3. 批量解析 `POST /api/batch-parse`
+
+一次提交多个链接，顺序解析，返回结果数组。
+
+**请求体**
+
+```json
+["https://v.douyin.com/xxx/", "https://www.bilibili.com/video/xxx"]
+```
+
+或：
+
+```json
+{
+  "urls": ["https://v.douyin.com/xxx/", "https://www.bilibili.com/video/xxx"]
+}
+```
+
+或多行文本：
+
+```
+https://v.douyin.com/xxx/
+https://www.bilibili.com/video/xxx
+```
+
+**响应示例**
+
+```json
+{
+  "total": 2,
+  "results": [
+    { "success": true, "platform": "抖音", ... },
+    { "success": false, "url": "https://...", "error": "..." }
+  ]
+}
+```
+
+---
+
+## 4. 下载文件 `GET /api/download/{path}`
 
 下载已解析并保存到服务器的媒体文件，支持子目录路径。
 
 ```
-GET /download/20260526/抖音/1748234567_a1b2c3.mp4
+GET /api/download/20260526/抖音/1748234567_a1b2c3.mp4
 ```
 
 返回对应文件，Content-Type 根据扩展名自动判断。
 
 ---
 
-## 4. 文件列表 `GET /files`
+## 5. 缩略图 `GET /api/thumb/{path}`
 
-列出 downloads 目录中所有已下载文件。
+获取文件缩略图。若缩略图不存在，302 重定向到原文件。
+
+```
+GET /api/thumb/20260526/抖音/1748234567_a1b2c3.jpg
+```
+
+---
+
+## 6. 文件列表 `GET /api/files`
+
+列出 downloads 目录中所有已下载文件，支持分页和筛选。
+
+**参数**
+
+| 参数 | 位置 | 必填 | 说明 |
+|------|------|------|------|
+| `page` | query | 否 | 页码，默认 1 |
+| `page_size` | query | 否 | 每页条数，默认 20 |
+| `platform` | query | 否 | 按平台筛选 |
+| `date` | query | 否 | 按日期筛选 |
 
 ```json
 {
@@ -100,15 +158,35 @@ GET /download/20260526/抖音/1748234567_a1b2c3.mp4
       "filename": "1748234567_a1b2c3.mp4",
       "relative_path": "20260526/抖音/1748234567_a1b2c3.mp4",
       "size": 5242880,
-      "url": "/download/20260526/抖音/1748234567_a1b2c3.mp4"
+      "url": "/api/download/20260526/抖音/1748234567_a1b2c3.mp4",
+      "thumb": "/api/thumb/20260526/抖音/1748234567_a1b2c3.mp4"
     }
-  ]
+  ],
+  "total": 1,
+  "page": 1,
+  "page_size": 20,
+  "has_more": false,
+  "platforms": ["抖音", "B站"],
+  "dates": ["20260526"]
 }
 ```
 
 ---
 
-## 5. 运行日志 `GET /api/logs`
+## 7. 文件信息 `DELETE /api/files`
+
+返回文件总数（不删除文件，文件永久保留）。
+
+```json
+{
+  "total": 12,
+  "message": "文件永久保留，不提供删除接口"
+}
+```
+
+---
+
+## 8. 运行日志 `GET /api/logs`
 
 获取服务运行日志。
 
@@ -116,7 +194,7 @@ GET /download/20260526/抖音/1748234567_a1b2c3.mp4
 
 | 参数 | 位置 | 必填 | 说明 |
 |------|------|------|------|
-| `limit` | query | 否 | 返回条数，默认 200 |
+| `limit` | query | 否 | 返回条数，默认 200，最大 500 |
 
 ```json
 {
@@ -132,22 +210,33 @@ GET /download/20260526/抖音/1748234567_a1b2c3.mp4
 
 ---
 
-## 6. 统计信息 `GET /api/stats`
+## 9. 统计信息 `GET /api/stats`
 
-返回文件总数等统计信息。
+返回文件总数、大小、按平台/日期分组统计和缓存条目数。
 
 ```json
 {
-  "total": 12,
-  "message": "文件永久保留，不提供删除接口"
+  "total_files": 12,
+  "total_size": 52428800,
+  "total_size_mb": 50.0,
+  "by_platform": { "抖音": 8, "B站": 4 },
+  "by_date": { "20260526": 5, "20260527": 7 },
+  "cache_count": 10
 }
 ```
 
 ---
 
-## 7. 缓存记录 `GET /api/cache`
+## 10. 缓存记录 `GET /api/cache`
 
-返回所有缓存的解析记录。
+返回所有缓存的解析记录（分页）。
+
+**参数**
+
+| 参数 | 位置 | 必填 | 说明 |
+|------|------|------|------|
+| `page` | query | 否 | 页码，默认 1 |
+| `page_size` | query | 否 | 每页条数，默认 20 |
 
 ```json
 {
@@ -162,7 +251,10 @@ GET /download/20260526/抖音/1748234567_a1b2c3.mp4
       "cached": true,
       "files": [...]
     }
-  ]
+  ],
+  "total": 10,
+  "page": 1,
+  "page_size": 20
 }
 ```
 

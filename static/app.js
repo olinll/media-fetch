@@ -288,7 +288,7 @@ async function loadFiles(reset = false) {
   try {
     const fp = $('#filter-platform').value;
     const fd = $('#filter-date').value;
-    const resp = await fetch(`${BASE}/i/files?page=${filesPage}&page_size=20&platform=${encodeURIComponent(fp)}&date=${encodeURIComponent(fd)}`);
+    const resp = await fetch(`${BASE}/api/files?page=${filesPage}&page_size=20&platform=${encodeURIComponent(fp)}&date=${encodeURIComponent(fd)}`);
     const data = await resp.json();
     const grid = $('#files-grid');
     const empty = $('#files-empty');
@@ -335,7 +335,7 @@ function buildHistoryCard(e) {
 async function loadHistory(page = 1) {
   historyPage = page;
   try {
-    const resp = await fetch(`${BASE}/i/cache?page=${page}&page_size=${historyPageSize}`);
+    const resp = await fetch(`${BASE}/api/cache?page=${page}&page_size=${historyPageSize}`);
     const data = await resp.json();
     const entries = data.entries || [];
     const list = $('#history-list');
@@ -363,7 +363,7 @@ async function loadHistory(page = 1) {
 
 async function loadLogs() {
   try {
-    const resp = await fetch(`${BASE}/i/logs?limit=200`);
+    const resp = await fetch(`${BASE}/api/logs?limit=200`);
     const data = await resp.json();
     const container = $('#logs-container');
     container.innerHTML = (data.logs || []).map(l =>

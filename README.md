@@ -98,6 +98,12 @@ docker run -d \
 | POST | `/api/parse` | 同上，支持 JSON / 表单 / 纯文本 |
 | POST | `/api/batch-parse` | 批量解析，支持 JSON 数组或多行文本 |
 | GET | `/api/download/{path}` | 下载已保存的媒体文件 |
+| GET | `/api/thumb/{path}` | 获取缩略图 |
+| GET | `/api/files` | 文件列表（分页/筛选） |
+| DELETE | `/api/files` | 文件信息（stub，不删除） |
+| GET | `/api/cache` | 解析历史缓存 |
+| GET | `/api/stats` | 统计信息 |
+| GET | `/api/logs` | 运行日志 |
 
 详细的参数和响应说明请访问 Web UI 内的「说明」页面。
 
