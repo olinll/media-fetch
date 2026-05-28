@@ -102,9 +102,15 @@ _STATIC_DIR.mkdir(exist_ok=True)
 app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
 
+def _get_client_ip(request: Request) -> str:
+    """获取客户端真实 IP，优先从 EO-Connecting-IP 获取"""
+    return request.headers.get("EO-Connecting-IP") or request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or request.headers.get("X-Real-IP") or (request.client.host if request.client else "unknown")
+
+
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
-    logger.info(f">>> {request.method} {request.url.path}  query={dict(request.query_params)}  client={request.client.host}")
+    client_ip = _get_client_ip(request)
+    logger.info(f">>> {request.method} {request.url.path}  query={dict(request.query_params)}  client={client_ip}")
     resp = await call_next(request)
     logger.info(f"<<< {request.method} {request.url.path}  status={resp.status_code}")
     return resp
@@ -589,10 +595,6 @@ async def get_cache(page: int = 1, page_size: int = 20):
 
 
 # --- 解析 ---
-
-def _get_client_ip(request: Request) -> str:
-    """获取客户端 IP，优先从 EO-Connecting-IP 获取"""
-    return request.headers.get("EO-Connecting-IP") or request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or request.headers.get("X-Real-IP") or (request.client.host if request.client else "unknown")
 
 
 @app.post("/api/parse")
