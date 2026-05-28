@@ -528,12 +528,15 @@ def _generate_thumb(original: Path):
         except Exception as e:
             logger.warning(f"[缩略图] 生成失败: {original.name} - {e}")
 
-    # 视频缩略图（FFmpeg 截取第 1 秒）
+    # 视频缩略图（FFmpeg 截取第 1 秒，统一保存为 .jpg）
     elif suffix in (".mp4", ".mkv", ".webm", ".flv", ".mov", ".avi"):
         import shutil
         ffmpeg = shutil.which("ffmpeg")
         if not ffmpeg:
             logger.warning("[缩略图] FFmpeg 未找到，跳过视频缩略图")
+            return
+        thumb_path = thumb_path.with_suffix(".jpg")
+        if thumb_path.exists():
             return
         try:
             thumb_path.parent.mkdir(parents=True, exist_ok=True)
@@ -977,6 +980,10 @@ async def _do_parse(raw: str, client_ip: str = "unknown") -> dict:
 @app.get("/api/thumb/{file_path:path}")
 async def thumb_file_endpoint(file_path: str):
     thumb_path = THUMB_DIR / file_path
+    # 视频缩略图为同名 .jpg
+    suffix = Path(file_path).suffix.lower()
+    if suffix in (".mp4", ".mkv", ".webm", ".flv", ".mov", ".avi"):
+        thumb_path = thumb_path.with_suffix(".jpg")
     if thumb_path.exists():
         return FileResponse(thumb_path, media_type="image/jpeg", filename=thumb_path.name)
     # 无缩略图时重定向到原图

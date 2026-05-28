@@ -47,9 +47,12 @@ def find_media_files() -> list[Path]:
 
 
 def thumb_path_for(original: Path) -> Path:
-    """根据原文件路径计算缩略图路径"""
+    """根据原文件路径计算缩略图路径（视频统一为 .jpg）"""
     rel = original.relative_to(DOWNLOAD_DIR)
-    return THUMB_DIR / rel
+    p = THUMB_DIR / rel
+    if original.suffix.lower() in VIDEO_EXTS:
+        p = p.with_suffix(".jpg")
+    return p
 
 
 def generate_image_thumb(original: Path, thumb_path: Path, force: bool = False) -> bool:
