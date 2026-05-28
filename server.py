@@ -196,6 +196,7 @@ def _update_cache(url: str, result: dict):
         "duration": result.get("duration", 0),
         "original_url": result.get("original_url", ""),
         "resolved_url": result.get("resolved_url", ""),
+        "client_ip": result.get("client_ip", ""),
         "files": result.get("files", []),
     }
     _save_cache(cache)
@@ -633,6 +634,7 @@ async def get_cache(page: int = 1, page_size: int = 20):
             "type": data.get("type", ""),
             "duration": data.get("duration", 0),
             "original_url": data.get("original_url", ""),
+            "client_ip": data.get("client_ip", ""),
             "files": data.get("files", []),
         })
     entries.sort(key=lambda e: e["files"][0]["relative_path"] if e["files"] else "", reverse=True)

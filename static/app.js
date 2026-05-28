@@ -323,7 +323,7 @@ function buildHistoryCard(e) {
         ${e.files.length ? `<span class="text-xs text-gray-400">${e.files.length} 个文件</span>` : ''}
       </div>
       <div class="text-sm font-medium mb-1">${e.title || '(无标题)'}</div>
-      <div class="text-xs text-gray-400 truncate">${e.author ? '@' + e.author : ''} · ${e.original_url.substring(0, 60)}</div>
+      <div class="text-xs text-gray-400 truncate">${e.author ? '@' + e.author : ''} · ${e.client_ip || ''} · ${e.original_url.substring(0, 60)}</div>
     </div>`;
 }
 
