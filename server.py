@@ -311,7 +311,7 @@ def extract_url(text: str) -> str:
 
 async def resolve_short_link(url: str, client: httpx.AsyncClient) -> str:
     logger.info(f"[短链] 解析: {url}")
-    resp = await client.get(url, follow_redirects=False)
+    resp = await client.get(url, follow_redirects=False, headers={"User-Agent": PC_UA, "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8", "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8"})
     logger.info(f"[短链] 状态码: {resp.status_code}")
     if resp.status_code in (301, 302, 303, 307, 308):
         location = resp.headers.get("Location", url)
