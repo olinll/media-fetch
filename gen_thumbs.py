@@ -10,6 +10,7 @@
 """
 
 import argparse
+import json
 import os
 import shutil
 import subprocess
@@ -26,12 +27,28 @@ except ImportError:
 BASE_DIR = Path(__file__).parent
 DOWNLOAD_DIR = BASE_DIR / os.getenv("MF_DOWNLOADS_DIR", "downloads")
 THUMB_DIR = DOWNLOAD_DIR / "_thumbs"
+META_PATH = DOWNLOAD_DIR / "_meta.json"
 THUMB_MAX_WIDTH = 400
 THUMB_QUALITY = 80
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 VIDEO_EXTS = {".mp4", ".mkv", ".webm", ".flv", ".mov", ".avi"}
 ALL_EXTS = IMAGE_EXTS | VIDEO_EXTS
+
+
+def _load_meta() -> dict:
+    if META_PATH.exists():
+        try:
+            return json.loads(META_PATH.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    return {}
+
+
+def _save_meta(rel: str, width: int, height: int):
+    meta = _load_meta()
+    meta[rel] = {"width": width, "height": height}
+    META_PATH.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def find_media_files() -> list[Path]:
@@ -62,6 +79,9 @@ def generate_image_thumb(original: Path, thumb_path: Path, force: bool = False) 
     try:
         thumb_path.parent.mkdir(parents=True, exist_ok=True)
         img = Image.open(original)
+        w, h = img.size
+        rel = str(original.relative_to(DOWNLOAD_DIR)).replace("\\", "/")
+        _save_meta(rel, w, h)
         if img.width > THUMB_MAX_WIDTH:
             ratio = THUMB_MAX_WIDTH / img.width
             new_size = (THUMB_MAX_WIDTH, int(img.height * ratio))
@@ -91,6 +111,20 @@ def generate_video_thumb(original: Path, thumb_path: Path, force: bool = False) 
              "-q:v", "3", "-y", str(thumb_path)],
             capture_output=True, text=True, timeout=60)
         if thumb_path.exists():
+            # 用 ffprobe 获取视频尺寸
+            ffprobe = shutil.which("ffprobe")
+            if ffprobe:
+                try:
+                    r = subprocess.run(
+                        [ffprobe, "-v", "quiet", "-select_streams", "v:0",
+                         "-show_entries", "stream=width,height", "-of", "csv=p=0", str(original)],
+                        capture_output=True, text=True, timeout=10)
+                    if r.stdout.strip():
+                        w, h = r.stdout.strip().split(",")
+                        rel = str(original.relative_to(DOWNLOAD_DIR)).replace("\\", "/")
+                        _save_meta(rel, int(w), int(h))
+                except Exception:
+                    pass
             return True
         print(f"  [失败] {original.name}: {result.stderr[:120]}")
         return False

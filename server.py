@@ -505,8 +505,48 @@ async def download_file(url: str, suffix: str, client: httpx.AsyncClient, platfo
     return fpath, rel
 
 
+# --- 文件元数据缓存 ---
+
+META_PATH = DOWNLOAD_DIR / "_meta.json"
+
+
+def _load_meta() -> dict:
+    if META_PATH.exists():
+        try:
+            return json.loads(META_PATH.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    return {}
+
+
+def _save_meta(fpath: Path, width: int, height: int):
+    meta = _load_meta()
+    rel = _relative_path(fpath)
+    meta[rel] = {"width": width, "height": height}
+    META_PATH.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _probe_video(fpath: Path) -> tuple[int, int] | None:
+    """用 ffprobe 获取视频宽高"""
+    import shutil
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        return None
+    try:
+        result = subprocess.run(
+            [ffprobe, "-v", "quiet", "-select_streams", "v:0",
+             "-show_entries", "stream=width,height", "-of", "csv=p=0", str(fpath)],
+            capture_output=True, text=True, timeout=10)
+        if result.stdout.strip():
+            w, h = result.stdout.strip().split(",")
+            return int(w), int(h)
+    except Exception:
+        pass
+    return None
+
+
 def _generate_thumb(original: Path):
-    """为图片/视频生成缩略图，存储在 THUMB_DIR 下"""
+    """为图片/视频生成缩略图，存储在 THUMB_DIR 下，同时记录尺寸到 _meta.json"""
     suffix = original.suffix.lower()
     thumb_path = THUMB_DIR / _relative_path(original)
     if thumb_path.exists():
@@ -517,6 +557,8 @@ def _generate_thumb(original: Path):
         try:
             thumb_path.parent.mkdir(parents=True, exist_ok=True)
             img = Image.open(original)
+            w, h = img.size
+            _save_meta(original, w, h)
             if img.width > THUMB_MAX_WIDTH:
                 ratio = THUMB_MAX_WIDTH / img.width
                 new_size = (THUMB_MAX_WIDTH, int(img.height * ratio))
@@ -547,6 +589,10 @@ def _generate_thumb(original: Path):
                 capture_output=True, text=True, timeout=60)
             if thumb_path.exists():
                 logger.info(f"[缩略图] 生成: {thumb_path.name}")
+                # 从 ffprobe 获取视频尺寸
+                dim = _probe_video(original)
+                if dim:
+                    _save_meta(original, dim[0], dim[1])
             else:
                 logger.warning(f"[缩略图] 视频转换失败: {result.stderr[:120]}")
         except Exception as e:
@@ -1015,10 +1061,11 @@ async def list_files(page: int = 1, page_size: int = 20, platform: str = "", dat
     files = []
     all_platforms = set()
     all_dates = set()
+    meta = _load_meta()
     for f in sorted(DOWNLOAD_DIR.rglob("*"), key=lambda p: p.stat().st_mtime, reverse=True):
         if f.is_file():
             rel = _relative_path(f)
-            if rel.startswith("_thumbs/"):
+            if rel.startswith("_thumbs/") or rel.startswith("_meta"):
                 continue
             parts = rel.split("/")
             file_date = parts[0] if len(parts) > 0 else ""
@@ -1040,6 +1087,9 @@ async def list_files(page: int = 1, page_size: int = 20, platform: str = "", dat
             if f.suffix.lower() in (".jpg", ".jpeg", ".png", ".webp", ".gif",
                                    ".mp4", ".mkv", ".webm", ".flv", ".mov", ".avi"):
                 entry["thumb"] = f"{PREFIX}/api/thumb/{rel}"
+            if rel in meta:
+                entry["width"] = meta[rel]["width"]
+                entry["height"] = meta[rel]["height"]
             files.append(entry)
     total = len(files)
     start = (page - 1) * page_size
