@@ -8,7 +8,6 @@ import json
 import logging
 import os
 import re
-import secrets
 import sys
 import time
 from collections import deque
@@ -29,7 +28,8 @@ PORT = int(os.getenv("MF_PORT", "9000"))
 PREFIX = os.getenv("MF_PREFIX", "").rstrip("/")
 FFMPEG_PATH = os.getenv("MF_FFMPEG_PATH", "")
 DOWNLOADS_DIR = os.getenv("MF_DOWNLOADS_DIR", "")
-API_KEY = os.getenv("MF_API_KEY", "") or secrets.token_urlsafe(16)
+PROXY = os.getenv("MF_PROXY", "")
+LOG_LEVEL = os.getenv("MF_LOG_LEVEL", "INFO").upper()
 
 # 下载目录（支持相对路径，相对于项目目录）
 if DOWNLOADS_DIR:
@@ -66,22 +66,9 @@ for _d in _FFMPEG_CANDIDATES:
 
 import httpx
 import yt_dlp
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
-
-
-async def verify_api_key(request: Request, x_api_key: str | None = Header(None)):
-    key = x_api_key or request.query_params.get("key", "")
-    if not key and request.method == "POST":
-        try:
-            body = await request.json()
-            if isinstance(body, dict):
-                key = body.get("key", "")
-        except Exception:
-            pass
-    if key != API_KEY:
-        raise HTTPException(401, "无效的 API Key")
 
 # ======================================================================
 # Logging + 内存日志收集
@@ -100,7 +87,7 @@ class MemoryLogHandler(logging.Handler):
 
 
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=getattr(logging, LOG_LEVEL, logging.INFO),
     format="%(asctime)s [%(levelname)s] %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
     handlers=[logging.StreamHandler(sys.stdout), MemoryLogHandler()],
@@ -179,6 +166,7 @@ def _check_cache(url: str) -> dict | None:
     logger.info(f"[缓存] 命中: {key[:60]}")
     entry["files"] = valid_files
     entry["cached"] = True
+    entry["success"] = True
     return entry
 
 
@@ -404,6 +392,9 @@ def parse_with_ytdlp(url: str) -> dict:
         "skip_download": True,
         "http_headers": {"User-Agent": PC_UA},
     }
+    if PROXY and any(d in url for d in ("tiktok.com", "youtube.com", "youtu.be", "twitter.com", "x.com")):
+        opts["proxy"] = PROXY
+        logger.info(f"[yt-dlp] 使用代理: {PROXY}")
     with yt_dlp.YoutubeDL(opts) as ydl:
         info = ydl.extract_info(url, download=False)
 
@@ -457,6 +448,9 @@ def download_with_ytdlp(url: str, platform: str = "未知") -> tuple[Path, str]:
         "http_headers": {"User-Agent": PC_UA},
         "postprocessors": [{"key": "FFmpegVideoConvertor", "preferedformat": "mp4"}],
     }
+    if PROXY and any(d in url for d in ("tiktok.com", "youtube.com", "youtu.be", "twitter.com", "x.com")):
+        opts["proxy"] = PROXY
+        logger.info(f"[yt-dlp 下载] 使用代理: {PROXY}")
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
             ydl.download([url])
@@ -516,7 +510,7 @@ def _detect_platform(url: str) -> str:
 # ======================================================================
 
 def _write_config_js():
-    content = f"window.BASE_PATH = '{PREFIX}';\nwindow.API_KEY = '{API_KEY}';\n"
+    content = f"window.BASE_PATH = '{PREFIX}';\n"
     (_STATIC_DIR / "config.js").write_text(content, encoding="utf-8")
 
 _write_config_js()
@@ -596,11 +590,17 @@ async def get_cache(page: int = 1, page_size: int = 20):
 
 # --- 解析 ---
 
-@app.post("/api/parse", dependencies=[Depends(verify_api_key)])
+def _get_client_ip(request: Request) -> str:
+    """获取客户端 IP，优先从 EO-Connecting-IP 获取"""
+    return request.headers.get("EO-Connecting-IP") or request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or request.headers.get("X-Real-IP") or (request.client.host if request.client else "unknown")
+
+
+@app.post("/api/parse")
 async def parse_link_post(request: Request):
     """支持 url 或 text 字段，会自动从文案中提取链接"""
     content_type = request.headers.get("content-type", "")
-    logger.info(f"[POST] Content-Type: {content_type}")
+    client_ip = _get_client_ip(request)
+    logger.info(f"[POST] Content-Type: {content_type}, IP: {client_ip}")
 
     body = await request.body()
     text = body.decode("utf-8", errors="replace")
@@ -615,10 +615,8 @@ async def parse_link_post(request: Request):
         except json.JSONDecodeError:
             logger.warning("[POST] JSON 解析失败")
     elif "application/x-www-form-urlencoded" in content_type:
-        # 表单数据，直接当文本用
         raw = text
     else:
-        # 兜底：直接当纯文本
         raw = text
 
     raw = raw.strip()
@@ -626,15 +624,55 @@ async def parse_link_post(request: Request):
         raise HTTPException(400, "缺少 url 或 text 参数")
 
     logger.info(f"[POST] 提取到: {raw[:120]}")
-    return await _do_parse(raw)
+    return await _do_parse(raw, client_ip)
 
 
-@app.get("/api/parse", dependencies=[Depends(verify_api_key)])
-async def parse_link_get(url: str = Query(..., description="链接或包含链接的文案")):
-    return await _do_parse(url.strip())
+@app.post("/api/batch-parse")
+async def batch_parse_post(request: Request):
+    """批量解析，支持 JSON 数组或多行文本"""
+    content_type = request.headers.get("content-type", "")
+    body = await request.body()
+    text = body.decode("utf-8", errors="replace")
+
+    urls = []
+    if "application/json" in content_type:
+        try:
+            data = json.loads(text)
+            if isinstance(data, list):
+                urls = [str(u).strip() for u in data if u]
+            elif isinstance(data, dict):
+                raw = data.get("urls", []) or data.get("text", "")
+                if isinstance(raw, list):
+                    urls = [str(u).strip() for u in raw if u]
+                elif isinstance(raw, str):
+                    urls = [line.strip() for line in raw.splitlines() if line.strip()]
+        except json.JSONDecodeError:
+            raise HTTPException(400, "无效的 JSON")
+    else:
+        urls = [line.strip() for line in text.splitlines() if line.strip()]
+
+    if not urls:
+        raise HTTPException(400, "缺少 url 参数")
+
+    logger.info(f"[批量解析] 共 {len(urls)} 个链接")
+    results = []
+    for url in urls:
+        try:
+            result = await _do_parse(url)
+            results.append(result)
+        except Exception as e:
+            results.append({"success": False, "url": url, "error": str(e)})
+
+    return {"total": len(urls), "results": results}
 
 
-async def _do_parse(raw: str) -> dict:
+@app.get("/api/parse")
+async def parse_link_get(request: Request, url: str = Query(..., description="链接或包含链接的文案")):
+    client_ip = _get_client_ip(request)
+    return await _do_parse(url.strip(), client_ip)
+
+
+async def _do_parse(raw: str, client_ip: str = "unknown") -> dict:
     url = extract_url(raw)
     if not url.startswith("http"):
         url = "https://" + url
@@ -642,6 +680,7 @@ async def _do_parse(raw: str) -> dict:
     logger.info(f"{'='*60}")
     logger.info(f"[解析] 原文: {raw[:120]}")
     logger.info(f"[解析] 提取后: {url}")
+    logger.info(f"[解析] IP: {client_ip}")
 
     async with httpx.AsyncClient(
         timeout=30,
@@ -780,6 +819,7 @@ async def _do_parse(raw: str) -> dict:
         "original_url": url,
         "resolved_url": resolved_url,
         "files": downloaded_files,
+        "client_ip": client_ip,
     }
 
     # 写入缓存
@@ -809,7 +849,7 @@ async def download_file_endpoint(file_path: str):
     return FileResponse(fpath, media_type=media_type, filename=fpath.name)
 
 
-@app.get("/api/download/{file_path:path}", dependencies=[Depends(verify_api_key)])
+@app.get("/api/download/{file_path:path}")
 async def api_download_file_endpoint(file_path: str):
     fpath = DOWNLOAD_DIR / file_path
     if not fpath.exists():
@@ -898,7 +938,7 @@ if __name__ == "__main__":
     print(f"    路径前缀   {PREFIX or '/'}")
     print(f"    下载目录   {DOWNLOAD_DIR}")
     print(f"    FFmpeg     {ffmpeg_path or '未找到'}")
-    print(f"    API Key    {API_KEY}")
+    print(f"    代理       {PROXY or '未配置'}")
     print()
 
     try:

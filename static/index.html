@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>MediaFetch 媒体抓取</title>
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
 <link rel="stylesheet" href="tailwind.min.css">
 <link rel="stylesheet" href="style.css">
 </head>
@@ -69,23 +70,18 @@
   </div>
 
   <!-- 输入框 -->
-  <div class="flex flex-col sm:flex-row gap-2 mb-4">
-    <div class="relative flex-1">
-      <input id="url-input" type="text" placeholder="粘贴抖音分享文案或链接..."
-        class="w-full bg-white border border-gray-300 rounded-lg pl-4 pr-20 py-3 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 placeholder-gray-400 shadow-sm">
-      <div class="absolute right-2 top-1/2 -translate-y-1/2 flex gap-1">
-        <button onclick="clearInput()" class="text-gray-400 hover:text-gray-600 p-1" title="清空">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg>
-        </button>
-      </div>
-    </div>
-    <div class="flex gap-2">
-      <button onclick="pasteInput()"
-        class="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-3 rounded-lg text-sm font-medium transition shadow-sm border border-gray-300">
+  <div class="flex gap-3 mb-4">
+    <textarea id="batch-input" placeholder="粘贴链接或分享文案，支持多行批量解析..." rows="2"
+      class="flex-1 bg-white border border-gray-200 rounded-2xl px-4 py-3 text-sm focus:outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-50 placeholder-gray-400 resize-y leading-normal transition-all"></textarea>
+    <div class="flex flex-col gap-2" style="min-width: 90px;">
+      <button onclick="pasteInput()" id="paste-btn"
+        class="flex-1 rounded-xl text-sm transition-all"
+        style="background: white; border: 1px solid #e5e7eb; color: #4b5563; box-shadow: 0 1px 3px 0 rgba(0,0,0,0.1), 0 1px 2px -1px rgba(0,0,0,0.1);">
         粘贴
       </button>
       <button id="parse-btn" onclick="doParse()"
-        class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg text-sm font-medium transition shadow-sm">
+        class="flex-1 rounded-xl text-sm font-medium transition-all"
+        style="background: #3b82f6; color: white; box-shadow: 0 1px 3px 0 rgba(59,130,246,0.3), 0 1px 2px -1px rgba(59,130,246,0.3);">
         解析
       </button>
     </div>
@@ -130,7 +126,7 @@
   <div id="parse-error" class="hidden bg-red-50 border border-red-200 rounded-lg p-4 mb-4 text-red-600 text-sm"></div>
 
   <div id="parse-result" class="hidden">
-    <div class="bg-white rounded-xl border border-gray-200 overflow-hidden mb-6 shadow-sm">
+    <div id="single-result" class="bg-white rounded-xl border border-gray-200 overflow-hidden mb-6 shadow-sm hidden">
       <div class="p-5">
         <div class="flex flex-wrap items-center gap-2 sm:gap-3 mb-3">
           <span id="r-platform" class="bg-blue-50 text-blue-600 text-xs px-2 py-1 rounded font-medium"></span>
@@ -145,12 +141,14 @@
         <p class="text-xs text-gray-400 mt-2">
           原链接: <a id="r-link" href="#" target="_blank" class="text-blue-500 hover:underline break-all"></a>
         </p>
+        <p class="text-xs text-gray-400 mt-1">
+          IP: <span id="r-ip" class="text-gray-500"></span>
+        </p>
       </div>
-
       <div id="r-media" class="border-t border-gray-200"></div>
-
       <div id="r-files" class="border-t border-gray-200 p-5"></div>
     </div>
+    <div id="batch-result"></div>
   </div>
 </section>
 
@@ -205,46 +203,10 @@
         <tbody class="text-gray-700">
           <tr class="border-b border-gray-100"><td class="py-2"><code class="text-green-600 bg-green-50 px-1 rounded">GET</code></td><td><code>/api/parse?url=</code></td><td>解析链接或分享文案</td></tr>
           <tr class="border-b border-gray-100"><td class="py-2"><code class="text-yellow-600 bg-yellow-50 px-1 rounded">POST</code></td><td><code>/api/parse</code></td><td>同上，支持 JSON / 表单 / 纯文本</td></tr>
-          <tr><td class="py-2"><code class="text-green-600 bg-green-50 px-1 rounded">GET</code></td><td><code>/api/download/{path}</code></td><td>下载已保存的媒体文件（需 Key）</td></tr>
+          <tr class="border-b border-gray-100"><td class="py-2"><code class="text-yellow-600 bg-yellow-50 px-1 rounded">POST</code></td><td><code>/api/batch-parse</code></td><td>批量解析，支持 JSON 数组或多行文本</td></tr>
+          <tr><td class="py-2"><code class="text-green-600 bg-green-50 px-1 rounded">GET</code></td><td><code>/api/download/{path}</code></td><td>下载已保存的媒体文件</td></tr>
         </tbody>
       </table></div>
-      <p class="text-gray-500 text-xs">其中 <code>/api/*</code> 接口需要认证，<code>/download/*</code> 无需认证。</p>
-    </div>
-
-    <!-- 认证说明 -->
-    <div class="bg-white rounded-lg border border-gray-200 p-5 space-y-4 shadow-sm">
-      <h3 class="font-medium">API Key 认证</h3>
-      <p class="text-gray-600">解析接口 <code>/api/parse</code> 需要在请求中携带 API Key。Key 在服务启动时显示于控制台，也可通过 <code>.env</code> 文件中的 <code>MF_API_KEY</code> 固定配置。</p>
-      <p class="text-gray-600">支持以下三种传参方式（任选其一）：</p>
-      <div class="overflow-x-auto"><table class="w-full text-sm">
-        <thead><tr class="text-gray-500 border-b border-gray-200">
-          <th class="text-left py-1.5">方式</th><th class="text-left py-1.5">示例</th>
-        </tr></thead>
-        <tbody class="text-gray-700">
-          <tr class="border-b border-gray-100">
-            <td class="py-1.5">Header</td>
-            <td><code class="bg-gray-100 px-1 rounded">X-API-Key: your_key</code></td>
-          </tr>
-          <tr class="border-b border-gray-100">
-            <td class="py-1.5">Query 参数</td>
-            <td><code class="bg-gray-100 px-1 rounded">/api/parse?url=...&key=your_key</code></td>
-          </tr>
-          <tr>
-            <td class="py-1.5">JSON Body</td>
-            <td><code class="bg-gray-100 px-1 rounded">{"url": "...", "key": "your_key"}</code></td>
-          </tr>
-        </tbody>
-      </table></div>
-      <pre class="bg-gray-50 border border-gray-200 rounded p-3 text-xs overflow-x-auto"># Header 方式（推荐）
-curl -H "X-API-Key: your_key" "http://localhost:9100/api/parse?url=https://v.douyin.com/xxx/"
-
-# Query 参数方式
-curl "http://localhost:9100/api/parse?url=https://v.douyin.com/xxx/&key=your_key"
-
-# JSON Body 方式
-curl -X POST http://localhost:9100/api/parse \
-  -H "Content-Type: application/json" \
-  -d '{"url": "https://v.douyin.com/xxx/", "key": "your_key"}'</pre>
     </div>
 
     <!-- 解析接口 -->
@@ -260,10 +222,9 @@ curl -X POST http://localhost:9100/api/parse \
           </tr></thead>
           <tbody class="text-gray-700">
             <tr><td class="py-1.5"><code>url</code></td><td>query</td><td>是</td><td>链接地址，或包含链接的分享文案</td></tr>
-            <tr><td class="py-1.5"><code>key</code></td><td>query</td><td>否</td><td>API Key（也可通过 Header 传递）</td></tr>
           </tbody>
         </table></div>
-        <pre class="bg-gray-50 border border-gray-200 rounded p-3 text-xs overflow-x-auto">GET /api/parse?url=2.05 复制打开抖音... https://v.douyin.com/xxx/&key=your_key</pre>
+        <pre class="bg-gray-50 border border-gray-200 rounded p-3 text-xs overflow-x-auto">GET /api/parse?url=2.05 复制打开抖音... https://v.douyin.com/xxx/</pre>
       </div>
 
       <div class="space-y-2">
@@ -283,6 +244,29 @@ curl -X POST http://localhost:9100/api/parse \
 Content-Type: application/json
 
 {"text": "2.05 复制打开抖音... https://v.douyin.com/xxx/"}</pre>
+      </div>
+
+      <div class="space-y-2">
+        <div class="font-medium text-gray-700">POST <code class="bg-gray-100 px-1 rounded">/api/batch-parse</code></div>
+        <p class="text-gray-600">批量解析接口，支持多种格式：</p>
+        <div class="overflow-x-auto"><table class="w-full text-sm">
+          <thead><tr class="text-gray-500 border-b border-gray-200">
+            <th class="text-left py-1.5">Content-Type</th><th class="text-left py-1.5">格式</th><th class="text-left py-1.5">说明</th>
+          </tr></thead>
+          <tbody class="text-gray-700">
+            <tr class="border-b border-gray-100"><td class="py-1.5"><code>application/json</code></td><td><code>["url1", "url2"]</code> 或 <code>{"urls": [...]}</code> 或 <code>{"text": "多行文本"}</code></td><td>JSON 数组或对象</td></tr>
+            <tr><td class="py-1.5">其他</td><td>多行文本</td><td>每行一个链接</td></tr>
+          </tbody>
+        </table></div>
+        <pre class="bg-gray-50 border border-gray-200 rounded p-3 text-xs overflow-x-auto">POST /api/batch-parse
+Content-Type: application/json
+
+["https://v.douyin.com/xxx/", "https://youtu.be/yyy"]</pre>
+        <pre class="bg-gray-50 border border-gray-200 rounded p-3 text-xs overflow-x-auto">POST /api/batch-parse
+Content-Type: text/plain
+
+https://v.douyin.com/xxx/
+https://youtu.be/yyy/</pre>
       </div>
 
       <div class="space-y-2">
@@ -312,7 +296,7 @@ Content-Type: application/json
     <!-- 下载接口 -->
     <div class="bg-white rounded-lg border border-gray-200 p-5 space-y-4 shadow-sm">
       <h3 class="font-medium">2. 下载文件</h3>
-      <p class="text-gray-600">下载已解析并保存到服务器的媒体文件，路径从解析结果的 <code>url</code> 字段获取。需要 API Key 认证。</p>
+      <p class="text-gray-600">下载已解析并保存到服务器的媒体文件，路径从解析结果的 <code>url</code> 字段获取。</p>
       <pre class="bg-gray-50 border border-gray-200 rounded p-3 text-xs overflow-x-auto">GET /api/download/20260526/抖音/1748234567_a1b2c3.mp4</pre>
       <p class="text-gray-600">返回对应文件，Content-Type 根据扩展名自动判断（mp4、jpg、png、webp、gif、mp3、flac）。</p>
     </div>

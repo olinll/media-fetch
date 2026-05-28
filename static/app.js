@@ -1,7 +1,6 @@
 const $ = s => document.querySelector(s);
 const $$ = s => document.querySelectorAll(s);
 const BASE = window.BASE_PATH || '';
-const KEY = window.API_KEY || '';
 
 var filesPage = 1;
 var filesLoading = false;
@@ -34,31 +33,27 @@ $$('.tab-btn').forEach(btn => {
 const savedTab = localStorage.getItem('activeTab') || 'parse';
 switchTab(savedTab);
 
-$('#url-input').addEventListener('keydown', e => { if (e.key === 'Enter') doParse(); });
-
 function clearInput() {
-  $('#url-input').value = '';
+  $('#batch-input').value = '';
   $('#parse-result').classList.add('hidden');
   $('#parse-error').classList.add('hidden');
   $('#parse-tips').classList.remove('hidden');
-  $('#url-input').focus();
+  $('#batch-input').focus();
 }
 
 async function pasteInput() {
   try {
     const text = await navigator.clipboard.readText();
-    $('#url-input').value = text;
-    $('#url-input').focus();
+    $('#batch-input').value = text;
+    $('#batch-input').focus();
   } catch (e) {
-    // clipboard API 需要 HTTPS 或 localhost，fallback
-    $('#url-input').value = '';
-    $('#url-input').focus();
+    $('#batch-input').focus();
     alert('无法读取剪贴板，请手动粘贴');
   }
 }
 
 async function doParse() {
-  const raw = $('#url-input').value.trim();
+  const raw = $('#batch-input').value.trim();
   if (!raw) return;
   $('#parse-loading').classList.remove('hidden');
   $('#parse-result').classList.add('hidden');
@@ -66,14 +61,18 @@ async function doParse() {
   $('#parse-tips').classList.add('hidden');
   $('#parse-btn').disabled = true;
   try {
-    const resp = await fetch(`${BASE}/api/parse`, {
+    const lines = raw.split('\n').filter(l => l.trim());
+    const endpoint = lines.length > 1 ? `${BASE}/api/batch-parse` : `${BASE}/api/parse`;
+    const body = lines.length > 1 ? JSON.stringify({ text: raw }) : JSON.stringify({ text: lines[0] });
+    const resp = await fetch(endpoint, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-API-Key': KEY },
-      body: JSON.stringify({ text: raw })
+      headers: { 'Content-Type': 'application/json' },
+      body: body
     });
     const data = await resp.json();
     if (!resp.ok) throw new Error(data.detail || '解析失败');
-    renderResult(data);
+    if (lines.length > 1) renderBatchResult(data);
+    else renderResult(data);
   } catch (e) {
     $('#parse-error').textContent = e.message;
     $('#parse-error').classList.remove('hidden');
@@ -85,6 +84,8 @@ async function doParse() {
 }
 
 function renderResult(data) {
+  $('#single-result').classList.remove('hidden');
+  $('#batch-result').classList.add('hidden');
   $('#r-platform').textContent = data.platform;
   $('#r-type').textContent = data.type === 'slides' ? '图文' : '视频';
   $('#r-title').textContent = data.title || '(无标题)';
@@ -93,6 +94,7 @@ function renderResult(data) {
   $('#r-cached').classList.toggle('hidden', !data.cached);
   $('#r-link').textContent = data.resolved_url || data.original_url || '';
   $('#r-link').href = data.resolved_url || data.original_url || '#';
+  $('#r-ip').textContent = data.client_ip || '';
 
   const mediaEl = $('#r-media');
   mediaEl.innerHTML = '';
@@ -134,6 +136,95 @@ function renderResult(data) {
       </div>`;
   });
   $('#parse-result').classList.remove('hidden');
+}
+
+function renderBatchResult(data) {
+  const container = $('#parse-result');
+  const batchEl = $('#batch-result');
+
+  $('#single-result').classList.add('hidden');
+  batchEl.innerHTML = '';
+
+  const results = data.results || [];
+  let successCount = 0;
+  let failCount = 0;
+
+  results.forEach((result, idx) => {
+    const card = document.createElement('div');
+    card.className = 'bg-white rounded-lg border border-gray-200 overflow-hidden mb-3';
+
+    if (result.success) {
+      successCount++;
+      const files = result.files || [];
+      const videos = files.filter(f => f.type === 'video');
+      const images = files.filter(f => f.type === 'image');
+
+      let mediaHtml = '';
+      if (videos.length) {
+        mediaHtml += videos.map(f => `
+          <video controls class="w-full max-h-48 bg-black" preload="metadata">
+            <source src="${f.url}" type="video/mp4">
+          </video>
+        `).join('');
+      }
+      if (images.length) {
+        mediaHtml += `<div class="grid gap-1 p-1 ${images.length === 1 ? '' : images.length <= 4 ? 'grid-cols-2' : 'grid-cols-3'}">`;
+        mediaHtml += images.map(f => `
+          <img src="${f.url}" class="w-full aspect-square object-cover rounded cursor-pointer hover:opacity-80 transition" onclick="openLightbox(${JSON.stringify(files.map(x=>({url:x.url,type:x.type}))).replace(/"/g,'&quot;')}, ${files.indexOf(f)})">
+        `).join('');
+        mediaHtml += '</div>';
+      }
+
+      const contentId = `batch-content-${idx}`;
+      card.innerHTML = `
+        <div class="p-3 cursor-pointer flex items-center justify-between" onclick="toggleBatchItem('${contentId}', this)">
+          <div>
+            <div class="flex items-center gap-2 mb-1">
+              <span class="bg-blue-50 text-blue-600 text-xs px-2 py-0.5 rounded font-medium">${result.platform}</span>
+              <span class="text-xs text-gray-400">${result.type === 'slides' ? '图文' : '视频'}</span>
+              ${result.cached ? '<span class="text-xs text-green-500">缓存</span>' : ''}
+            </div>
+            <div class="text-sm font-medium">${result.title || '(无标题)'}</div>
+            <div class="text-xs text-gray-400">${result.author ? '@' + result.author : ''}</div>
+          </div>
+          <svg class="w-4 h-4 text-gray-400 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+        </div>
+        <div id="${contentId}" class="hidden">
+          ${mediaHtml ? `<div class="border-t border-gray-100">${mediaHtml}</div>` : ''}
+          <div class="p-3 border-t border-gray-100 flex flex-wrap gap-2">
+            ${files.map(f => `<a href="${f.url}" download class="text-blue-600 hover:text-blue-500 text-xs bg-blue-50 px-2 py-1 rounded">${f.type === 'video' ? '视频' : '图片'} 下载</a>`).join('')}
+          </div>
+        </div>
+      `;
+    } else {
+      failCount++;
+      card.innerHTML = `
+        <div class="p-4">
+          <div class="flex items-center gap-2 mb-1">
+            <span class="bg-red-50 text-red-600 text-xs px-2 py-0.5 rounded">失败</span>
+          </div>
+          <div class="text-sm text-gray-600 truncate">${result.url || ''}</div>
+          <div class="text-xs text-red-500 mt-1">${result.error || '未知错误'}</div>
+        </div>
+      `;
+    }
+    batchEl.appendChild(card);
+  });
+
+  // 添加统计
+  const summary = document.createElement('div');
+  summary.className = 'bg-gray-50 rounded-lg p-3 mb-3 text-sm text-gray-600';
+  summary.textContent = `成功: ${successCount} 个，失败: ${failCount} 个`;
+  batchEl.insertBefore(summary, batchEl.firstChild);
+
+  container.classList.remove('hidden');
+}
+
+function toggleBatchItem(id, header) {
+  const content = document.getElementById(id);
+  const icon = header.querySelector('svg');
+  content.classList.toggle('hidden');
+  icon.style.transform = content.classList.contains('hidden') ? '' : 'rotate(180deg)';
 }
 
 function buildFileCard(f) {
@@ -208,7 +299,7 @@ $('#filter-date').onchange = () => loadFiles(true);
 
 function buildHistoryCard(e) {
   return `
-    <div class="bg-white rounded-lg border border-gray-200 p-4 hover:border-gray-300 transition cursor-pointer shadow-sm" onclick="$('#url-input').value='${e.original_url.replace(/'/g, "\\'")}'; $$('.tab-btn')[0].click();">
+    <div class="bg-white rounded-lg border border-gray-200 p-4 hover:border-gray-300 transition cursor-pointer shadow-sm" onclick="$('#batch-input').value='${e.original_url.replace(/'/g, "\\'")}'; $$('.tab-btn')[0].click();">
       <div class="flex items-center gap-2 mb-1">
         <span class="bg-blue-50 text-blue-600 text-xs px-2 py-0.5 rounded font-medium">${e.platform}</span>
         <span class="text-xs text-gray-400">${e.type === 'slides' ? '图文' : '视频'}</span>
