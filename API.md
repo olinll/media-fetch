@@ -159,7 +159,15 @@ GET /api/thumb/20260526/抖音/1748234567_a1b2c3.jpg
       "relative_path": "20260526/抖音/1748234567_a1b2c3.mp4",
       "size": 5242880,
       "url": "/api/download/20260526/抖音/1748234567_a1b2c3.mp4",
-      "thumb": "/api/thumb/20260526/抖音/1748234567_a1b2c3.mp4"
+      "thumb": "/api/thumb/20260526/抖音/1748234567_a1b2c3.mp4",
+      "width": 1080,
+      "height": 1920,
+      "title": "流萤AI图",
+      "author": "知了知了",
+      "platform": "抖音",
+      "type": "video",
+      "duration": 0,
+      "original_url": "https://v.douyin.com/xxx"
     }
   ],
   "total": 1,

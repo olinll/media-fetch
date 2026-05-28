@@ -45,9 +45,9 @@ def _load_meta() -> dict:
     return {}
 
 
-def _save_meta(rel: str, width: int, height: int):
+def _save_meta(rel: str, width: int, height: int, **extra):
     meta = _load_meta()
-    meta[rel] = {"width": width, "height": height}
+    meta[rel] = {"width": width, "height": height, **extra}
     META_PATH.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
 
 

@@ -242,7 +242,18 @@ def _check_cache(url: str) -> dict | None:
 def _update_cache(url: str, result: dict):
     cache = _load_cache()
     key = _cache_key(url)
-    # 只存必要字段
+    meta = _load_meta()
+    # 为 files 补充 width/height，同时写入 _meta.json
+    enriched_files = []
+    for f in result.get("files", []):
+        rel = f["relative_path"]
+        m = meta.get(rel, {})
+        w, h = m.get("width", 0), m.get("height", 0)
+        enriched_files.append({**f, "width": w, "height": h})
+        _save_meta(DOWNLOAD_DIR / rel, w, h,
+                   title=result.get("title", ""), author=result.get("author", ""),
+                   platform=result.get("platform", ""), type=result.get("type", ""),
+                   duration=result.get("duration", 0), original_url=result.get("original_url", ""))
     cache[key] = {
         "platform": result.get("platform", ""),
         "title": result.get("title", ""),
@@ -252,7 +263,7 @@ def _update_cache(url: str, result: dict):
         "original_url": result.get("original_url", ""),
         "resolved_url": result.get("resolved_url", ""),
         "client_ip": result.get("client_ip", ""),
-        "files": result.get("files", []),
+        "files": enriched_files,
     }
     _save_cache(cache)
 
@@ -519,10 +530,10 @@ def _load_meta() -> dict:
     return {}
 
 
-def _save_meta(fpath: Path, width: int, height: int):
+def _save_meta(fpath: Path, width: int, height: int, **extra):
     meta = _load_meta()
     rel = _relative_path(fpath)
-    meta[rel] = {"width": width, "height": height}
+    meta[rel] = {"width": width, "height": height, **extra}
     META_PATH.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
@@ -1088,8 +1099,10 @@ async def list_files(page: int = 1, page_size: int = 20, platform: str = "", dat
                                    ".mp4", ".mkv", ".webm", ".flv", ".mov", ".avi"):
                 entry["thumb"] = f"{PREFIX}/api/thumb/{rel}"
             if rel in meta:
-                entry["width"] = meta[rel]["width"]
-                entry["height"] = meta[rel]["height"]
+                m = meta[rel]
+                for k in ("width", "height", "title", "author", "platform", "type", "duration", "original_url"):
+                    if m.get(k):
+                        entry[k] = m[k]
             files.append(entry)
     total = len(files)
     start = (page - 1) * page_size
